@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 class APIForwarder:
     """API请求转发器"""
 
-    # 上游API端点配置
     UPSTREAM_ENDPOINTS = {
         "openai": "https://api.openai.com/v1",
         "anthropic": "https://api.anthropic.com/v1",
@@ -31,6 +30,24 @@ class APIForwarder:
     def __init__(self, timeout: int = 120):
         self.timeout = timeout
         self.logger = logging.getLogger(__name__)
+        self._client: Optional[httpx.AsyncClient] = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=self.timeout,
+                limits=httpx.Limits(
+                    max_keepalive_connections=20,
+                    max_connections=100,
+                    keepalive_expiry=30
+                )
+            )
+        return self._client
+
+    async def close(self):
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     def get_endpoint(self, provider: str, **kwargs) -> str:
         """获取上游API端点"""
@@ -169,30 +186,29 @@ class APIForwarder:
 
         # 发送请求
         try:
+            client = self._get_client()
             if stream:
-                # 流式请求 - 返回异步生成器，保持client打开直到流结束
                 async def stream_generator():
                     try:
-                        async with httpx.AsyncClient(timeout=timeout) as client:
-                            self.logger.info(f"转发请求到 {url}")
-                            async with client.stream('POST', url, json=payload, headers=headers) as response:
-                                if response.status_code >= 400:
-                                    error_body = await response.aread()
-                                    error_text = error_body.decode('utf-8') if error_body else response.text
-                                    self.logger.error(f"上游API错误 {response.status_code}: {error_text[:200]}")
-                                    yield {
-                                        "stream": True,
-                                        "chunk": f'{{"error": "上游API错误 {response.status_code}: {error_text[:100]}..."}}',
-                                        "content_type": "application/json"
-                                    }
-                                    return
-                                content_type = response.headers.get("content-type", "text/plain")
-                                async for chunk in response.aiter_text():
-                                    yield {
-                                        "stream": True,
-                                        "chunk": chunk,
-                                        "content_type": content_type
-                                    }
+                        self.logger.info(f"转发请求到 {url}")
+                        async with client.stream('POST', url, json=payload, headers=headers, timeout=timeout) as response:
+                            if response.status_code >= 400:
+                                error_body = await response.aread()
+                                error_text = error_body.decode('utf-8') if error_body else response.text
+                                self.logger.error(f"上游API错误 {response.status_code}: {error_text[:200]}")
+                                yield {
+                                    "stream": True,
+                                    "chunk": f'{{"error": "上游API错误 {response.status_code}: {error_text[:100]}..."}}',
+                                    "content_type": "application/json"
+                                }
+                                return
+                            content_type = response.headers.get("content-type", "text/plain")
+                            async for chunk in response.aiter_text():
+                                yield {
+                                    "stream": True,
+                                    "chunk": chunk,
+                                    "content_type": content_type
+                                }
                     except httpx.HTTPStatusError as e:
                         self.logger.error(f"HTTP错误: {e.response.status_code} - {str(e)}")
                         yield {
@@ -210,27 +226,24 @@ class APIForwarder:
 
                 return stream_generator()
             else:
-                # 普通请求
-                async with httpx.AsyncClient(timeout=timeout) as client:
-                    self.logger.info(f"转发请求到 {url}")
-                    response = await client.post(url, json=payload, headers=headers)
-                    
-                    if response.status_code >= 400:
-                        self.logger.error(f"上游API错误 {response.status_code}: {response.text[:200]}")
-                        return {
-                            "error": {
-                                "message": f"上游API错误 {response.status_code}: {response.text[:100]}",
-                                "type": "upstream_error",
-                                "code": response.status_code
-                            }
+                self.logger.info(f"转发请求到 {url}")
+                response = await client.post(url, json=payload, headers=headers, timeout=timeout)
+
+                if response.status_code >= 400:
+                    self.logger.error(f"上游API错误 {response.status_code}: {response.text[:200]}")
+                    return {
+                        "error": {
+                            "message": f"上游API错误 {response.status_code}: {response.text[:100]}",
+                            "type": "upstream_error",
+                            "code": response.status_code
                         }
-                    
-                    # 尝试解析JSON响应
-                    try:
-                        return response.json()
-                    except ValueError as e:
-                        self.logger.error(f"JSON解析错误: {str(e)}, 响应内容: {response.text[:500]}")
-                        raise Exception(f"上游API返回非JSON响应: {str(e)}")
+                    }
+
+                try:
+                    return response.json()
+                except ValueError as e:
+                    self.logger.error(f"JSON解析错误: {str(e)}, 响应内容: {response.text[:500]}")
+                    raise Exception(f"上游API返回非JSON响应: {str(e)}")
 
         except httpx.TimeoutException:
             self.logger.error(f"请求超时: {url}")
@@ -312,12 +325,12 @@ class APIForwarder:
             }
 
         try:
+            client = self._get_client()
             if stream:
-                # 流式请求 - 返回异步生成器，保持client打开直到流结束
                 async def stream_generator():
-                    async with httpx.AsyncClient(timeout=timeout) as client:
+                    try:
                         self.logger.info(f"转发补全请求到 {url}")
-                        async with client.stream('POST', url, json=payload, headers=headers) as response:
+                        async with client.stream('POST', url, json=payload, headers=headers, timeout=timeout) as response:
                             response.raise_for_status()
                             content_type = response.headers.get("content-type", "text/plain")
                             async for chunk in response.aiter_text():
@@ -326,21 +339,25 @@ class APIForwarder:
                                     "chunk": chunk,
                                     "content_type": content_type
                                 }
+                    except Exception as e:
+                        self.logger.error(f"转发补全请求异常: {str(e)}")
+                        yield {
+                            "stream": True,
+                            "chunk": f'{{"error": "转发失败: {str(e)[:50]}"}}',
+                            "content_type": "application/json"
+                        }
 
                 return stream_generator()
             else:
-                # 普通请求
-                async with httpx.AsyncClient(timeout=timeout) as client:
-                    self.logger.info(f"转发补全请求到 {url}")
-                    response = await client.post(url, json=payload, headers=headers)
-                    response.raise_for_status()
-                    
-                    # 尝试解析JSON响应
-                    try:
-                        return response.json()
-                    except ValueError as e:
-                        self.logger.error(f"JSON解析错误: {str(e)}, 响应内容: {response.text[:500]}")
-                        raise Exception(f"上游API返回非JSON响应: {str(e)}")
+                self.logger.info(f"转发补全请求到 {url}")
+                response = await client.post(url, json=payload, headers=headers, timeout=timeout)
+                response.raise_for_status()
+
+                try:
+                    return response.json()
+                except ValueError as e:
+                    self.logger.error(f"JSON解析错误: {str(e)}, 响应内容: {response.text[:500]}")
+                    raise Exception(f"上游API返回非JSON响应: {str(e)}")
 
         except httpx.TimeoutException:
             self.logger.error(f"补全请求超时: {url}")

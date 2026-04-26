@@ -5,10 +5,10 @@
 AutoAPI 是一个基于 FastAPI 的 AI-API 转发工具，支持模型映射和自动路由功能。设计用于解决多渠道、多模型的API管理和转发需求。
 
 **核心特点**：
-- 支持多种AI提供商（OpenAI、Anthropic、DeepSeek等）
-- 强大的模型映射功能
-- 自动路由选择（优先级、负载均衡、随机）
-- 规则配置简单，使用JSON格式
+- 🔄 支持多种AI提供商（OpenAI、Anthropic、DeepSeek等）
+- 🗺️ 强大的模型映射功能
+- ⚡ 自动路由选择（优先级、负载均衡、随机）
+- 📝 规则配置简单，使用JSON格式
 
 ## 技术栈
 
@@ -55,10 +55,12 @@ python main.py     # 启动服务
       "name": "DeepSeek模型映射",
       "priority": 10,
       "actions": {
-        "url": "https://ai-api.shunx.top",
-        "key": "我的密钥",
+        "url": "https://api.deepseek.com/v1",
+        "key": "我的DeepSeek密钥",
         "mappings": {
-          "deepseek-chat": "deepseek-v3",
+          "deepseek-V3": "deepseek-chat",
+          "deepseek-V3.2": "deepseek-chat-20250611",
+          "deepseek-coder": "deepseek-coder"
         }
       },
       "exposure": "true"
@@ -83,6 +85,7 @@ python main.py     # 启动服务
       "actions": {
         "quotation": {
           "deepseek-V3": 1,
+          "deepseek-V3.2": 2,
           "gpt-4": 3
         },
         "rules": "priority"
@@ -126,6 +129,22 @@ python main.py     # 启动服务
 - `"load-balancing"` - 负载均衡模式（选择使用次数最少的模型）
 - `"randomly"` - 随机选择模型
 
+### keys.json - 密钥配置
+
+```json
+{
+  "keys": [
+    {
+      "provider": "deepseek",
+      "api_key": "sk-xxxxxxxxxxxxxxxx",
+      "key_name": "我的DeepSeek密钥",
+      "display_name": "DeepSeek主密钥",
+      "created_at": "2024-01-01T00:00:00",
+      "last_used": "2024-01-01T00:00:00",
+      "is_active": true
+    }
+  ]
+}
 ```
 
 **注意**：`api_key` 字段包含实际密钥，仅在创建时返回一次，请妥善保管。
@@ -317,6 +336,13 @@ X-API-Key: your_api_key_here
 }
 ```
 
+## 注意事项
+
+1. **密钥安全**：`api_key` 字段仅在创建/重置时返回一次，请妥善保管
+2. **规则优先级**：数字越大优先级越高，高优先级规则优先匹配
+3. **exposure控制**：设为false的规则不能直接通过外部API调用，但可以被auto规则引用
+4. **热更新**：修改 `rules.json` 后调用 `POST /api/rules/reload` 即可生效，无需重启服务
+
 ## 项目结构
 
 ```
@@ -330,7 +356,6 @@ autoapi/
 ├── startup.py       # 初始化脚本
 ├── start.bat        # Windows启动脚本
 ├── requirements.txt # Python依赖
-├── keys.json        # 密钥数据（自动生成）
 └── rules.json       # 规则配置（手动编辑）
 ```
 

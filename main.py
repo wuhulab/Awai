@@ -112,6 +112,17 @@ forwarder = APIForwarder(timeout=DEFAULT_CONFIG.get("max_request_timeout", 120))
 # 初始化默认规则
 init_default_rules(BASE_DIR)
 
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("AutoAPI 启动，HTTP客户端已初始化")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    logger.info("关闭HTTP客户端...")
+    await forwarder.close()
+
 # 应用启动时间
 start_time = time.time()
 
@@ -162,7 +173,8 @@ async def reload_rules():
     Returns:
         重新加载结果
     """
-    rules = rule_engine._load_rules()
+    rule_engine.invalidate_cache()
+    rules = rule_engine._load_rules(use_cache=False)
     return {
         "message": "规则已重新加载",
         "model_count": len(rules.get("model", [])),
@@ -445,34 +457,34 @@ async def direct_proxy(
 
         # 处理流式响应
         stream = body.get("stream", False)
-        
-        # 发送请求
-        if stream:
-            # 使用流式请求
-            async with client.stream('POST', url, json=body, headers=headers) as response:
-                response.raise_for_status()
-                content_type = response.headers.get("content-type", "text/plain")
-                
-                async def generate():
-                    async for chunk in response.aiter_text():
-                        yield chunk
-                
-                return StreamingResponse(generate(), media_type=content_type)
-        else:
-            # 普通请求
-            async with httpx.AsyncClient(timeout=body.get("timeout", 120)) as client:
-                logger.info(f"直接代理请求到 {url}")
-                response = await client.post(url, json=body, headers=headers)
-                response.raise_for_status()
-                
-                # 尝试解析JSON响应
-                try:
-                    result = response.json()
-                except ValueError as e:
-                    logger.error(f"JSON解析错误: {str(e)}, 响应内容: {response.text[:500]}")
-                    raise Exception(f"上游API返回非JSON响应: {str(e)}")
+        timeout = body.get("timeout", 120)
+        client = forwarder._get_client()
 
-                return JSONResponse(content=result)
+        if stream:
+            async def generate():
+                try:
+                    async with client.stream('POST', url, json=body, headers=headers, timeout=timeout) as response:
+                        response.raise_for_status()
+                        content_type = response.headers.get("content-type", "text/plain")
+                        async for chunk in response.aiter_text():
+                            yield chunk
+                except Exception as e:
+                    logger.error(f"直接代理流式请求异常: {str(e)}")
+                    yield f'{{"error": "转发失败: {str(e)[:50]}"}}'
+
+            return StreamingResponse(generate(), media_type="text/plain")
+        else:
+            logger.info(f"直接代理请求到 {url}")
+            response = await client.post(url, json=body, headers=headers, timeout=timeout)
+            response.raise_for_status()
+
+            try:
+                result = response.json()
+            except ValueError as e:
+                logger.error(f"JSON解析错误: {str(e)}, 响应内容: {response.text[:500]}")
+                raise Exception(f"上游API返回非JSON响应: {str(e)}")
+
+            return JSONResponse(content=result)
 
     except HTTPException:
         raise

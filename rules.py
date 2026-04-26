@@ -6,6 +6,8 @@ AutoAPI - 规则引擎模块
 import json
 import random
 import logging
+import time
+import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 
@@ -15,25 +17,42 @@ logger = logging.getLogger(__name__)
 class RuleEngine:
     """规则引擎，密钥直接从rules.json获取"""
 
-    def __init__(self, base_dir: Path):
+    def __init__(self, base_dir: Path, cache_ttl: int = 60):
         self.base_dir = base_dir
         self.rules_file = base_dir / "rules.json"
         self.logger = logging.getLogger(__name__)
+        self._cache: Optional[Dict[str, Any]] = None
+        self._cache_time: float = 0
+        self._cache_ttl: int = cache_ttl
+        self._lock = threading.Lock()
 
-    def _load_rules(self) -> Dict[str, Any]:
-        """加载规则配置"""
+    def _load_rules(self, use_cache: bool = True) -> Dict[str, Any]:
+        """加载规则配置（带缓存）"""
+        if use_cache and self._cache is not None:
+            if time.time() - self._cache_time < self._cache_ttl:
+                return self._cache
+
         try:
             if self.rules_file.exists():
                 with open(self.rules_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    rules = json.load(f)
+                    with self._lock:
+                        self._cache = rules
+                        self._cache_time = time.time()
+                    return rules
             return {"model": [], "auto": []}
         except Exception as e:
             self.logger.error(f"加载规则失败: {e}")
             return {"model": [], "auto": []}
 
+    def invalidate_cache(self):
+        """手动清除缓存"""
+        with self._lock:
+            self._cache = None
+
     def get_exposed_model_rules(self) -> List[Dict[str, Any]]:
         """获取所有暴露的模型规则（用于外部转发）"""
-        rules = self._load_rules()
+        rules = self._load_rules(use_cache=True)
         model_rules = rules.get("model", [])
 
         # 过滤出 exposure=true 的规则
@@ -57,7 +76,7 @@ class RuleEngine:
         Returns:
             匹配的规则或 None
         """
-        rules = self._load_rules()
+        rules = self._load_rules(use_cache=True)
         model_rules = rules.get("model", [])
 
         # 按优先级排序
@@ -81,7 +100,7 @@ class RuleEngine:
         Returns:
             启用的自动规则或 None
         """
-        rules = self._load_rules()
+        rules = self._load_rules(use_cache=True)
         auto_rules = rules.get("auto", [])
 
         # 查找启用的规则
@@ -233,7 +252,7 @@ class RuleEngine:
             return actual_model, url, key_info
 
         # 2. 如果没有匹配，检查是否是 auto 规则名称
-        rules = self._load_rules()
+        rules = self._load_rules(use_cache=True)
         auto_rules = rules.get("auto", [])
 
         for auto_rule in auto_rules:
