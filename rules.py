@@ -1,6 +1,7 @@
 """
 AutoAPI - 规则引擎模块
 根据规则动态选择上游API和密钥（密钥直接配置在rules.json中）
+支持 key 轮询和 429 冷却机制
 """
 
 import json
@@ -10,6 +11,7 @@ import time
 import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
+from cooldown_manager import CooldownManager
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,7 @@ class RuleEngine:
         self._cache_time: float = 0
         self._cache_ttl: int = cache_ttl
         self._lock = threading.Lock()
+        self.cooldown_manager = CooldownManager()
 
     def _load_rules(self, use_cache: bool = True) -> Dict[str, Any]:
         """加载规则配置（带缓存）"""
@@ -39,11 +42,14 @@ class RuleEngine:
                     with self._lock:
                         self._cache = rules
                         self._cache_time = time.time()
+                    
+                    self.cooldown_manager.configure(rules.get("settings", []))
+                    
                     return rules
-            return {"model": [], "auto": []}
+            return {"model": [], "auto": [], "settings": []}
         except Exception as e:
             self.logger.error(f"加载规则失败: {e}")
-            return {"model": [], "auto": []}
+            return {"model": [], "auto": [], "settings": []}
 
     def invalidate_cache(self):
         """手动清除缓存"""
@@ -224,6 +230,10 @@ class RuleEngine:
         1. 直接调用模型名（如 deepseek-V3）- 查找 model 规则映射
         2. 调用 auto 规则名（如 DeepSeek-auto）- 使用 auto 规则选择模型
 
+        支持 key 轮询和冷却机制：
+        - 当 key 是列表时，自动轮询选择可用的 key
+        - 当某个 key 的某个模型触发 429 时，会进入冷却状态
+
         Args:
             model_name: 请求的模型名称
 
@@ -237,18 +247,29 @@ class RuleEngine:
             actions = model_rule.get("actions", {})
             mappings = actions.get("mappings", {})
             url = actions.get("url")
-            api_key = actions.get("key")  # 直接从规则中获取密钥
+            api_keys = actions.get("key")  # 可能是字符串或列表
 
             # 映射实际模型名
             actual_model = mappings.get(model_name, model_name)
 
-            # 构建密钥信息（直接使用规则中配置的）
+            # 选择可用的 key（支持轮询和冷却）
+            selected_key = self.cooldown_manager.get_available_key(
+                api_keys if isinstance(api_keys, list) else [api_keys],
+                actual_model
+            )
+
+            if not selected_key:
+                self.logger.error(f"所有 key 都在冷却中，无法处理请求: model={actual_model}")
+                return None, None, None
+
+            # 构建密钥信息
             key_info = {
                 "provider": "deepseek",  # 从规则中可扩展
-                "api_key": api_key
+                "api_key": selected_key,
+                "model": actual_model  # 添加模型信息，用于冷却管理
             }
 
-            self.logger.info(f"模型 {model_name} -> {actual_model}, URL: {url}, Key: {api_key[:10]}...")
+            self.logger.info(f"模型 {model_name} -> {actual_model}, URL: {url}, Key: {selected_key[:10]}...")
             return actual_model, url, key_info
 
         # 2. 如果没有匹配，检查是否是 auto 规则名称
@@ -266,16 +287,27 @@ class RuleEngine:
                         actions = model_rule.get("actions", {})
                         mappings = actions.get("mappings", {})
                         url = actions.get("url")
-                        api_key = actions.get("key")
+                        api_keys = actions.get("key")
 
                         actual_model = mappings.get(auto_model, auto_model)
 
+                        # 选择可用的 key
+                        selected_key = self.cooldown_manager.get_available_key(
+                            api_keys if isinstance(api_keys, list) else [api_keys],
+                            actual_model
+                        )
+
+                        if not selected_key:
+                            self.logger.error(f"所有 key 都在冷却中，无法处理请求: model={actual_model}")
+                            return None, None, None
+
                         key_info = {
                             "provider": "deepseek",
-                            "api_key": api_key
+                            "api_key": selected_key,
+                            "model": actual_model
                         }
 
-                        self.logger.info(f"Auto选择模型 {auto_model} -> {actual_model}, URL: {url}, Key: {api_key[:10]}...")
+                        self.logger.info(f"Auto选择模型 {auto_model} -> {actual_model}, URL: {url}, Key: {selected_key[:10]}...")
                         return actual_model, url, key_info
 
         # 3. 如果都没有匹配，尝试自动选择
@@ -286,16 +318,27 @@ class RuleEngine:
                 actions = model_rule.get("actions", {})
                 mappings = actions.get("mappings", {})
                 url = actions.get("url")
-                api_key = actions.get("key")
+                api_keys = actions.get("key")
 
                 actual_model = mappings.get(auto_model, auto_model)
 
+                # 选择可用的 key
+                selected_key = self.cooldown_manager.get_available_key(
+                    api_keys if isinstance(api_keys, list) else [api_keys],
+                    actual_model
+                )
+
+                if not selected_key:
+                    self.logger.error(f"所有 key 都在冷却中，无法处理请求: model={actual_model}")
+                    return None, None, None
+
                 key_info = {
                     "provider": "deepseek",
-                    "api_key": api_key
+                    "api_key": selected_key,
+                    "model": actual_model
                 }
 
-                self.logger.info(f"自动选择模型 {auto_model} -> {actual_model}, URL: {url}, Key: {api_key[:10]}...")
+                self.logger.info(f"自动选择模型 {auto_model} -> {actual_model}, URL: {url}, Key: {selected_key[:10]}...")
                 return actual_model, url, key_info
 
         self.logger.warning(f"无法解析模型: {model_name}")

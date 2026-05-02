@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from config import DEFAULT_CONFIG, HealthResponse
 from rules import RuleEngine
 from forwarder import APIForwarder
+from system_config import SystemConfig
 
 # 配置日志
 logging.basicConfig(
@@ -106,8 +107,18 @@ app.add_middleware(
 
 # 初始化组件
 BASE_DIR = Path(__file__).parent
+
+# 初始化系统配置
+system_config = SystemConfig(BASE_DIR)
+
+# 初始化规则引擎
 rule_engine = RuleEngine(BASE_DIR)
-forwarder = APIForwarder(timeout=DEFAULT_CONFIG.get("max_request_timeout", 120))
+
+# 初始化转发器（传入系统配置）
+forwarder = APIForwarder(
+    timeout=system_config.get_timeout_config().get("request", 120),
+    system_config=system_config
+)
 
 # 初始化默认规则
 init_default_rules(BASE_DIR)
@@ -115,11 +126,19 @@ init_default_rules(BASE_DIR)
 
 @app.on_event("startup")
 async def startup_event():
+    """应用启动事件"""
     logger.info("AutoAPI 启动，HTTP客户端已初始化")
+    
+    # 应用日志配置
+    log_config = system_config.get_logging_config()
+    log_level = log_config.get("level", "INFO")
+    logging.getLogger().setLevel(getattr(logging, log_level.upper(), logging.INFO))
+    logger.info(f"日志级别设置为: {log_level}")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    """应用关闭事件"""
     logger.info("关闭HTTP客户端...")
     await forwarder.close()
 
@@ -149,6 +168,54 @@ async def health_check():
         version="2.0.0",
         uptime=time.time() - start_time
     )
+
+
+# ==================== 系统配置路由 ====================
+
+@app.get("/api/system/config", tags=["系统配置"])
+async def get_system_config():
+    """
+    获取系统配置
+    
+    Returns:
+        系统配置信息
+    """
+    return system_config.get_config()
+
+
+@app.post("/api/system/reload", tags=["系统配置"])
+async def reload_system_config():
+    """
+    重新加载系统配置
+    
+    Returns:
+        重新加载结果
+    """
+    config = system_config.reload_config()
+    
+    # 重新初始化转发器
+    global forwarder
+    await forwarder.close()
+    forwarder = APIForwarder(
+        timeout=system_config.get_timeout_config().get("request", 120),
+        system_config=system_config
+    )
+    
+    return {
+        "message": "系统配置已重新加载",
+        "config_keys": list(config.keys())
+    }
+
+
+@app.get("/api/system/forwarding", tags=["系统配置"])
+async def get_forwarding_config():
+    """
+    获取转发配置
+    
+    Returns:
+        转发配置信息
+    """
+    return system_config.get_forwarding_config()
 
 
 # ==================== 规则管理路由 ====================
@@ -182,9 +249,44 @@ async def reload_rules():
     }
 
 
+@app.get("/api/cooldown/status", tags=["冷却管理"])
+async def get_cooldown_status():
+    """
+    获取当前冷却状态
+
+    Returns:
+        冷却状态信息
+    """
+    status = rule_engine.cooldown_manager.get_cooldown_status()
+    return {
+        "cooldown_status": status,
+        "total_keys_in_cooldown": len(status)
+    }
+
+
+@app.post("/api/cooldown/clear", tags=["冷却管理"])
+async def clear_cooldown(api_key: Optional[str] = None, model: Optional[str] = None):
+    """
+    清除冷却状态
+
+    Args:
+        api_key: API密钥（可选，不提供则清除所有）
+        model: 模型名称（可选，不提供则清除该key的所有模型）
+
+    Returns:
+        操作结果
+    """
+    rule_engine.cooldown_manager.clear_cooldown(api_key, model)
+    return {
+        "message": "冷却状态已清除",
+        "api_key": api_key,
+        "model": model
+    }
+
+
 # ==================== 代理转发路由 ====================
 
-@app.get("/v1/models", tags=["API代理"])
+@app.get("", tags=["API代理"])
 async def list_models():
     """
     获取可用模型列表
@@ -272,7 +374,7 @@ async def chat_completions(
         stream = body.get("stream", False)
         temperature = body.get("temperature", 0.7)
         max_tokens = body.get("max_tokens", 2048)
-        timeout = body.get("timeout", 120)
+        timeout = body.get("timeout", system_config.get_timeout_config().get("request", 120))
         messages = body.get("messages", [])
 
         # 调用转发器
@@ -311,9 +413,33 @@ async def chat_completions(
             # 返回JSON响应
             if isinstance(response, dict) and response.get("error"):
                 err = response["error"]
+                
+                # 处理 429 速率限制错误
+                if err.get("code") == 429:
+                    api_key = key_info.get("api_key")
+                    model = key_info.get("model", actual_model)
+                    
+                    # 触发冷却
+                    rule_engine.cooldown_manager.trigger_cooldown(api_key, model)
+                    
+                    logger.warning(f"触发冷却: key={api_key[:15]}..., model={model}")
+                    
+                    # 使用系统配置中的错误消息
+                    error_msg = system_config.get_error_message(429)
+                    
+                    # 返回错误信息
+                    raise HTTPException(
+                        status_code=429,
+                        detail=f"{error_msg}: {err.get('message', '速率限制')}"
+                    )
+                
+                # 使用系统配置中的错误消息
+                status_code = err.get("code", 502)
+                error_msg = system_config.get_error_message(status_code) if status_code in [429, 500] else err.get("message", "上游API错误")
+                
                 raise HTTPException(
-                    status_code=err.get("code", 502),
-                    detail=err.get("message", "上游API错误")
+                    status_code=status_code,
+                    detail=error_msg
                 )
             return JSONResponse(content=response)
 
@@ -321,15 +447,24 @@ async def chat_completions(
         raise
     except httpx.HTTPStatusError as e:
         logger.error(f"上游API错误: {e.response.status_code} - {str(e)}")
+        
+        # 使用系统配置中的错误消息
+        status_code = e.response.status_code
+        error_msg = system_config.get_error_message(status_code) if status_code in [429, 500] else f"上游API错误: {status_code}"
+        
         raise HTTPException(
             status_code=502,
-            detail=f"上游API错误: {e.response.status_code} {e.response.reason_phrase}"
+            detail=error_msg
         )
     except TimeoutError as e:
         raise HTTPException(status_code=504, detail=str(e))
     except Exception as e:
         logger.error(f"代理请求失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
+        
+        # 使用系统配置中的错误消息
+        error_msg = system_config.get_error_message(500)
+        
+        raise HTTPException(status_code=500, detail=f"{error_msg}: {str(e)}")
 
 
 @app.api_route("/v1/completions", methods=["POST", "GET"], tags=["API代理"])
@@ -372,7 +507,7 @@ async def completions(
             stream=body.get("stream", False),
             temperature=body.get("temperature", 0.7),
             max_tokens=body.get("max_tokens", 2048),
-            timeout=body.get("timeout", 120)
+            timeout=body.get("timeout", system_config.get_timeout_config().get("request", 120))
         )
 
         # 处理流式响应
@@ -402,7 +537,11 @@ async def completions(
         raise
     except Exception as e:
         logger.error(f"补全请求失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        
+        # 使用系统配置中的错误消息
+        error_msg = system_config.get_error_message(500)
+        
+        raise HTTPException(status_code=500, detail=f"{error_msg}: {str(e)}")
 
 
 # ==================== 直接转发路由 ====================
@@ -457,7 +596,7 @@ async def direct_proxy(
 
         # 处理流式响应
         stream = body.get("stream", False)
-        timeout = body.get("timeout", 120)
+        timeout = body.get("timeout", system_config.get_timeout_config().get("request", 120))
         client = forwarder._get_client()
 
         if stream:
@@ -490,7 +629,11 @@ async def direct_proxy(
         raise
     except Exception as e:
         logger.error(f"直接代理请求失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        
+        # 使用系统配置中的错误消息
+        error_msg = system_config.get_error_message(500)
+        
+        raise HTTPException(status_code=500, detail=f"{error_msg}: {str(e)}")
 
 
 # ==================== 启动应用 ====================
@@ -505,5 +648,5 @@ if __name__ == "__main__":
         app,
         host=DEFAULT_CONFIG.get("host", "0.0.0.0"),
         port=DEFAULT_CONFIG.get("port", 8000),
-        log_level=DEFAULT_CONFIG.get("log_level", "info").lower()
+        log_level=system_config.get_logging_config().get("level", "info").lower()
     )
