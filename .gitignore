@@ -59,4 +59,4 @@ htmlcov/
 
 backend/tests/
 
-*.json
+rules.json
