@@ -286,7 +286,7 @@ async def clear_cooldown(api_key: Optional[str] = None, model: Optional[str] = N
 
 # ==================== 代理转发路由 ====================
 
-@app.get("", tags=["API代理"])
+@app.get("/v1/models", tags=["API代理"])
 async def list_models():
     """
     获取可用模型列表
