@@ -104,9 +104,11 @@ jobs:
       - name: Build MSI
         run: |
           $v = "${{ needs.get-version.outputs.version }}"
-          # WiX requires strict 4-part version (x.x.x.x)
-          $wixVer = $v -replace '[^0-9.]', '.' -replace '\.+', '.'
-          while (($wixVer -split '\.').Count -lt 4) { $wixVer += '.0' }
+          # WiX requires strict 4-part version (0-65534 each)
+          $parts = [regex]::Matches($v, '\d+') | ForEach-Object { [int]$_.Value }
+          while ($parts.Count -lt 4) { $parts += 0 }
+          for ($i = 0; $i -lt 4; $i++) { if ($parts[$i] -gt 65534) { $parts[$i] = 0 } }
+          $wixVer = $parts -join '.'
           candle -arch ${{ matrix.arch }} ".github\wix\installer.wxs" `
             -dAppVersion="$wixVer" -dArch="${{ matrix.arch }}" -dSourceDir="msi-build" `
             -ext WixUtilExtension -out "installer.wixobj"

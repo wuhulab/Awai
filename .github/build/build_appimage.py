@@ -3,9 +3,11 @@
 import argparse
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import urllib.request
+import zlib
 from pathlib import Path
 
 
@@ -23,6 +25,19 @@ def main() -> None:
     shutil.copytree(args.pkg_dir, appdir, dirs_exist_ok=True)
 
     # AppRun
+    # Placeholder icon (32x32 blue PNG)
+    def _make_png(w: int, h: int, rgb: tuple) -> bytes:
+        def chunk(typ: bytes, data: bytes) -> bytes:
+            c = typ + data
+            return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+
+        ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+        raw = b"".join(b"\x00" + bytes(rgb[:3]) * w for _ in range(h))
+        return b"\x89PNG\r\n\x1a\n" + ihdr + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+
+    icon_path = appdir / "autoapi.png"
+    icon_path.write_bytes(_make_png(32, 32, (64, 128, 255)))
+
     apprun = appdir / "AppRun"
     lines = [
         "#!/bin/bash",
@@ -40,6 +55,7 @@ def main() -> None:
         "Name=AutoAPI",
         "Comment=AI-API Forwarding Tool",
         "Exec=autoapi-ui",
+        "Icon=autoapi",
         "Terminal=false",
         "Type=Application",
         "Categories=Network;",

@@ -60,6 +60,7 @@ def main() -> None:
         "Name=AutoAPI\n"
         "Comment=AI-API Forwarding Tool\n"
         "Exec=autoapi-ui\n"
+        "Icon=autoapi\n"
         "Terminal=false\n"
         "Type=Application\n"
         "Categories=Network;\n"
