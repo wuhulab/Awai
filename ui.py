@@ -155,34 +155,40 @@ class AwaiUI(ctk.CTk):
         # 网格布局
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=0)
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(1, weight=0)
+        self.grid_rowconfigure(2, weight=1)
 
         # 顶部标题栏
         self._build_header()
 
-        # 主标签页
-        self.tab_view = ctk.CTkTabview(self, corner_radius=6)
-        self.tab_view.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
-        self.tab_view.grid_columnconfigure(0, weight=1)
-        self.tab_view.grid_rowconfigure(0, weight=1)
+        # 固定标签栏（用 SegmentedButton，永不滚动）
+        self.tab_bar = ctk.CTkSegmentedButton(
+            self,
+            values=["仪表盘", "供应商配置", "系统配置", "自动规则", "冷却管理"],
+            command=self._switch_tab,
+            font=ctk.CTkFont(size=12),
+        )
+        self.tab_bar.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 4))
+        self.tab_bar.set("仪表盘")
 
-        # 创建各个标签页
-        self.tab_dashboard = self.tab_view.add("仪表盘")
-        self.tab_providers = self.tab_view.add("供应商配置")
-        self.tab_system = self.tab_view.add("系统配置")
-        self.tab_auto_rules = self.tab_view.add("自动规则")
-        self.tab_cooldown = self.tab_view.add("冷却管理")
+        # 标签内容容器
+        self.tab_container = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
+        self.tab_container.grid(row=2, column=0, sticky="nsew", padx=8, pady=(0, 8))
+        self.tab_container.grid_columnconfigure(0, weight=1)
+        self.tab_container.grid_rowconfigure(0, weight=1)
 
-        for tab in [self.tab_dashboard, self.tab_providers, self.tab_system, self.tab_auto_rules, self.tab_cooldown]:
-            tab.grid_columnconfigure(0, weight=1)
-            tab.grid_rowconfigure(0, weight=1)
+        # 各标签页内容帧
+        self.tab_frames: Dict[str, ctk.CTkFrame] = {}
 
-        # 构建各标签内容
+        # 构建各标签内容（懒加载）
         self._build_dashboard()
         self._build_providers()
         self._build_system_config()
         self._build_auto_rules()
         self._build_cooldown()
+
+        # 显示默认标签
+        self._show_tab("仪表盘")
 
         # API 基础地址
         self.api_base = "http://localhost:8001"
@@ -192,6 +198,17 @@ class AwaiUI(ctk.CTk):
 
         # 关闭事件
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    # ==================== 标签切换 ====================
+
+    def _switch_tab(self, name: str):
+        self._show_tab(name)
+
+    def _show_tab(self, name: str):
+        for f in self.tab_frames.values():
+            f.grid_remove()
+        if name in self.tab_frames:
+            self.tab_frames[name].grid(row=0, column=0, sticky="nsew")
 
     # ==================== 工具方法 ====================
 
@@ -235,7 +252,12 @@ class AwaiUI(ctk.CTk):
     # ==================== 仪表盘 ====================
 
     def _build_dashboard(self):
-        container = ctk.CTkScrollableFrame(self.tab_dashboard, corner_radius=0)
+        frame = ctk.CTkFrame(self.tab_container, corner_radius=0)
+        frame.grid(row=0, column=0, sticky="nsew")
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_rowconfigure(0, weight=1)
+        self.tab_frames["仪表盘"] = frame
+        container = ctk.CTkScrollableFrame(frame, corner_radius=0)
         container.grid(row=0, column=0, sticky="nsew")
         container.grid_columnconfigure((0, 1), weight=1)
 
@@ -337,14 +359,14 @@ class AwaiUI(ctk.CTk):
         self.log_textbox.configure(state="disabled")
 
     def _make_stat_card(self, parent, title, value, col):
-        card = ctk.CTkFrame(parent, corner_radius=8, fg_color=("gray90", "gray20"))
-        card.grid(row=0, column=col, padx=8, pady=14, sticky="nsew")
+        card = ctk.CTkFrame(parent, corner_radius=6, fg_color=("gray90", "gray20"))
+        card.grid(row=0, column=col, padx=6, pady=10, sticky="nsew")
         card.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(card, text=title, font=ctk.CTkFont(size=12), text_color="gray").grid(
-            row=0, column=0, padx=12, pady=(10, 0)
+        ctk.CTkLabel(card, text=title, font=ctk.CTkFont(size=10), text_color="gray").grid(
+            row=0, column=0, padx=8, pady=(6, 0)
         )
-        lbl = ctk.CTkLabel(card, text=value, font=ctk.CTkFont(size=26, weight="bold"))
-        lbl.grid(row=1, column=0, padx=12, pady=(2, 10))
+        lbl = ctk.CTkLabel(card, text=value, font=ctk.CTkFont(size=18, weight="bold"))
+        lbl.grid(row=1, column=0, padx=8, pady=(0, 6))
         return lbl
 
     def _log(self, msg: str):
@@ -357,29 +379,30 @@ class AwaiUI(ctk.CTk):
     # ==================== 供应商配置 ====================
 
     def _build_providers(self):
-        container = ctk.CTkFrame(self.tab_providers, corner_radius=0)
+        container = ctk.CTkFrame(self.tab_container, corner_radius=0)
         container.grid(row=0, column=0, sticky="nsew")
         container.grid_columnconfigure(1, weight=1)
         container.grid_rowconfigure(0, weight=1)
+        self.tab_frames["供应商配置"] = container
 
         # 左侧列表
-        left = ctk.CTkFrame(container, corner_radius=8, width=240)
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        left = ctk.CTkFrame(container, corner_radius=6, width=180)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         left.grid_rowconfigure(1, weight=1)
         left.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(left, text="供应商列表", font=ctk.CTkFont(size=15, weight="bold")).grid(
-            row=0, column=0, padx=12, pady=(12, 6), sticky="w"
+        ctk.CTkLabel(left, text="供应商列表", font=ctk.CTkFont(size=12, weight="bold")).grid(
+            row=0, column=0, padx=8, pady=(8, 4), sticky="w"
         )
 
-        self.provider_listbox = ctk.CTkScrollableFrame(left, corner_radius=6)
-        self.provider_listbox.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
+        self.provider_listbox = ctk.CTkScrollableFrame(left, corner_radius=4)
+        self.provider_listbox.grid(row=1, column=0, sticky="nsew", padx=6, pady=2)
 
         btn_frame = ctk.CTkFrame(left, fg_color="transparent")
-        btn_frame.grid(row=2, column=0, sticky="ew", padx=8, pady=8)
+        btn_frame.grid(row=2, column=0, sticky="ew", padx=6, pady=6)
         btn_frame.grid_columnconfigure((0, 1), weight=1)
 
-        ctk.CTkButton(btn_frame, text="＋ 新增", command=self._add_provider, font=ctk.CTkFont(size=12)).grid(
+        ctk.CTkButton(btn_frame, text="＋ 新增", command=self._add_provider, font=ctk.CTkFont(size=10), height=26).grid(
             row=0, column=0, padx=2, sticky="ew"
         )
         ctk.CTkButton(
@@ -388,7 +411,8 @@ class AwaiUI(ctk.CTk):
             command=self._delete_provider,
             fg_color="#c62828",
             hover_color="#b71c1c",
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(size=10),
+            height=26,
         ).grid(row=0, column=1, padx=2, sticky="ew")
 
         # 右侧详情
@@ -429,10 +453,10 @@ class AwaiUI(ctk.CTk):
                 fg_color="transparent" if i != self._selected_provider else ("gray60", "gray30"),
                 border_width=1,
                 anchor="w",
-                height=50,
-                font=ctk.CTkFont(size=12),
+                height=40,
+                font=ctk.CTkFont(size=10),
             )
-            btn.pack(fill="x", padx=2, pady=2)
+            btn.pack(fill="x", padx=2, pady=1)
 
         if self._selected_provider is not None and self._selected_provider < len(models):
             self._show_provider_detail(self._selected_provider)
@@ -470,36 +494,36 @@ class AwaiUI(ctk.CTk):
         self._provider_widgets.clear()
 
         # 名称
-        ctk.CTkLabel(self.provider_detail_frame, text="供应商名称", font=ctk.CTkFont(size=13, weight="bold")).pack(
-            anchor="w", padx=12, pady=(12, 2)
+        ctk.CTkLabel(self.provider_detail_frame, text="供应商名称", font=ctk.CTkFont(size=11, weight="bold")).pack(
+            anchor="w", padx=10, pady=(8, 2)
         )
-        name_entry = ctk.CTkEntry(self.provider_detail_frame, font=ctk.CTkFont(size=13))
+        name_entry = ctk.CTkEntry(self.provider_detail_frame, font=ctk.CTkFont(size=11))
         name_entry.insert(0, provider.get("name", ""))
-        name_entry.pack(fill="x", padx=12, pady=(0, 8))
+        name_entry.pack(fill="x", padx=10, pady=(0, 6))
         self._provider_widgets["name"] = name_entry
 
         # URL
-        ctk.CTkLabel(self.provider_detail_frame, text="API 地址", font=ctk.CTkFont(size=13, weight="bold")).pack(
-            anchor="w", padx=12, pady=(4, 2)
+        ctk.CTkLabel(self.provider_detail_frame, text="API 地址", font=ctk.CTkFont(size=11, weight="bold")).pack(
+            anchor="w", padx=10, pady=(2, 2)
         )
-        url_entry = ctk.CTkEntry(self.provider_detail_frame, font=ctk.CTkFont(size=13))
+        url_entry = ctk.CTkEntry(self.provider_detail_frame, font=ctk.CTkFont(size=11))
         url_entry.insert(0, actions.get("url", ""))
-        url_entry.pack(fill="x", padx=12, pady=(0, 8))
+        url_entry.pack(fill="x", padx=10, pady=(0, 6))
         self._provider_widgets["url"] = url_entry
 
         # 优先级
         ctk.CTkLabel(
-            self.provider_detail_frame, text="优先级（数字越大优先级越高）", font=ctk.CTkFont(size=13, weight="bold")
-        ).pack(anchor="w", padx=12, pady=(4, 2))
-        priority_entry = ctk.CTkEntry(self.provider_detail_frame, font=ctk.CTkFont(size=13))
+            self.provider_detail_frame, text="优先级（数字越大优先级越高）", font=ctk.CTkFont(size=11, weight="bold")
+        ).pack(anchor="w", padx=10, pady=(2, 2))
+        priority_entry = ctk.CTkEntry(self.provider_detail_frame, font=ctk.CTkFont(size=11))
         priority_entry.insert(0, str(provider.get("priority", 0)))
-        priority_entry.pack(fill="x", padx=12, pady=(0, 8))
+        priority_entry.pack(fill="x", padx=10, pady=(0, 6))
         self._provider_widgets["priority"] = priority_entry
 
         # 暴露开关
         exp_frame = ctk.CTkFrame(self.provider_detail_frame, fg_color="transparent")
-        exp_frame.pack(fill="x", padx=12, pady=4)
-        ctk.CTkLabel(exp_frame, text="对外暴露", font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+        exp_frame.pack(fill="x", padx=10, pady=2)
+        ctk.CTkLabel(exp_frame, text="对外暴露", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left")
         exp_var = ctk.BooleanVar(value=str(provider.get("exposure", "true")).lower() == "true")
         exp_switch = ctk.CTkSwitch(exp_frame, text="", variable=exp_var)
         exp_switch.pack(side="right")
@@ -509,25 +533,25 @@ class AwaiUI(ctk.CTk):
         ctk.CTkLabel(
             self.provider_detail_frame,
             text="API 密钥（每行一个，支持多密钥轮询）",
-            font=ctk.CTkFont(size=13, weight="bold"),
-        ).pack(anchor="w", padx=12, pady=(12, 2))
-        keys_text = ctk.CTkTextbox(self.provider_detail_frame, height=80, font=ctk.CTkFont(size=12, family="Consolas"))
+            font=ctk.CTkFont(size=11, weight="bold"),
+        ).pack(anchor="w", padx=10, pady=(6, 2))
+        keys_text = ctk.CTkTextbox(self.provider_detail_frame, height=60, font=ctk.CTkFont(size=10, family="Consolas"))
         keys_text.insert("0.0", "\n".join(keys))
-        keys_text.pack(fill="x", padx=12, pady=(0, 8))
+        keys_text.pack(fill="x", padx=10, pady=(0, 6))
         self._provider_widgets["keys"] = keys_text
 
         # 模型映射
         ctk.CTkLabel(
             self.provider_detail_frame,
             text="模型映射（每行一个: 请求模型 = 上游模型）",
-            font=ctk.CTkFont(size=13, weight="bold"),
-        ).pack(anchor="w", padx=12, pady=(8, 2))
+            font=ctk.CTkFont(size=11, weight="bold"),
+        ).pack(anchor="w", padx=10, pady=(4, 2))
         mappings_text = ctk.CTkTextbox(
-            self.provider_detail_frame, height=150, font=ctk.CTkFont(size=12, family="Consolas")
+            self.provider_detail_frame, height=100, font=ctk.CTkFont(size=10, family="Consolas")
         )
         mapping_lines = [f"{k} = {v}" for k, v in mappings.items()]
         mappings_text.insert("0.0", "\n".join(mapping_lines))
-        mappings_text.pack(fill="x", padx=12, pady=(0, 8))
+        mappings_text.pack(fill="x", padx=10, pady=(0, 6))
         self._provider_widgets["mappings"] = mappings_text
 
         # 保存按钮
@@ -535,9 +559,9 @@ class AwaiUI(ctk.CTk):
             self.provider_detail_frame,
             text="💾 保存更改",
             command=lambda: self._save_provider(idx),
-            font=ctk.CTkFont(size=14, weight="bold"),
-            height=40,
-        ).pack(padx=12, pady=(8, 20), fill="x")
+            font=ctk.CTkFont(size=12, weight="bold"),
+            height=32,
+        ).pack(padx=10, pady=(6, 14), fill="x")
 
     def _save_provider(self, idx: int):
         models = self.rules_data.setdefault("model", [])
@@ -640,9 +664,10 @@ class AwaiUI(ctk.CTk):
     # ==================== 系统配置 ====================
 
     def _build_system_config(self):
-        container = ctk.CTkScrollableFrame(self.tab_system, corner_radius=0)
+        container = ctk.CTkScrollableFrame(self.tab_container, corner_radius=0)
         container.grid(row=0, column=0, sticky="nsew")
         container.grid_columnconfigure(0, weight=1)
+        self.tab_frames["系统配置"] = container
 
         self._sys_widgets: Dict[str, Any] = {}
 
@@ -661,186 +686,226 @@ class AwaiUI(ctk.CTk):
         rate_limit = forwarding.get("rate_limit", {})
 
         # 超时
-        sf = ctk.CTkFrame(container, corner_radius=8)
-        sf.pack(fill="x", padx=12, pady=4)
+        sf = ctk.CTkFrame(container, corner_radius=6)
+        sf.pack(fill="x", padx=10, pady=3)
         sf.grid_columnconfigure((1, 3, 5), weight=1)
-        ctk.CTkLabel(sf, text="连接超时 (s)").grid(row=0, column=0, padx=8, pady=8, sticky="w")
-        self._sys_widgets["timeout_connect"] = ctk.CTkEntry(sf, width=80)
+        ctk.CTkLabel(sf, text="连接超时 (s)", font=ctk.CTkFont(size=11)).grid(
+            row=0, column=0, padx=6, pady=6, sticky="w"
+        )
+        self._sys_widgets["timeout_connect"] = ctk.CTkEntry(sf, width=60, font=ctk.CTkFont(size=11))
         self._sys_widgets["timeout_connect"].insert(0, str(timeout.get("connect", 10)))
-        self._sys_widgets["timeout_connect"].grid(row=0, column=1, padx=4, pady=8, sticky="w")
+        self._sys_widgets["timeout_connect"].grid(row=0, column=1, padx=2, pady=6, sticky="w")
 
-        ctk.CTkLabel(sf, text="请求超时 (s)").grid(row=0, column=2, padx=8, pady=8, sticky="w")
-        self._sys_widgets["timeout_request"] = ctk.CTkEntry(sf, width=80)
+        ctk.CTkLabel(sf, text="请求超时 (s)", font=ctk.CTkFont(size=11)).grid(
+            row=0, column=2, padx=6, pady=6, sticky="w"
+        )
+        self._sys_widgets["timeout_request"] = ctk.CTkEntry(sf, width=60, font=ctk.CTkFont(size=11))
         self._sys_widgets["timeout_request"].insert(0, str(timeout.get("request", 120)))
-        self._sys_widgets["timeout_request"].grid(row=0, column=3, padx=4, pady=8, sticky="w")
+        self._sys_widgets["timeout_request"].grid(row=0, column=3, padx=2, pady=6, sticky="w")
 
-        ctk.CTkLabel(sf, text="读取超时 (s)").grid(row=0, column=4, padx=8, pady=8, sticky="w")
-        self._sys_widgets["timeout_read"] = ctk.CTkEntry(sf, width=80)
+        ctk.CTkLabel(sf, text="读取超时 (s)", font=ctk.CTkFont(size=11)).grid(
+            row=0, column=4, padx=6, pady=6, sticky="w"
+        )
+        self._sys_widgets["timeout_read"] = ctk.CTkEntry(sf, width=60, font=ctk.CTkFont(size=11))
         self._sys_widgets["timeout_read"].insert(0, str(timeout.get("read", 60)))
-        self._sys_widgets["timeout_read"].grid(row=0, column=5, padx=4, pady=8, sticky="w")
+        self._sys_widgets["timeout_read"].grid(row=0, column=5, padx=2, pady=6, sticky="w")
 
         # 重试
-        sf2 = ctk.CTkFrame(container, corner_radius=8)
-        sf2.pack(fill="x", padx=12, pady=4)
+        sf2 = ctk.CTkFrame(container, corner_radius=6)
+        sf2.pack(fill="x", padx=10, pady=3)
         sf2.grid_columnconfigure((1, 3), weight=1)
-        ctk.CTkLabel(sf2, text="最大重试次数").grid(row=0, column=0, padx=8, pady=8, sticky="w")
-        self._sys_widgets["retry_max"] = ctk.CTkEntry(sf2, width=80)
+        ctk.CTkLabel(sf2, text="最大重试次数", font=ctk.CTkFont(size=11)).grid(
+            row=0, column=0, padx=6, pady=6, sticky="w"
+        )
+        self._sys_widgets["retry_max"] = ctk.CTkEntry(sf2, width=60, font=ctk.CTkFont(size=11))
         self._sys_widgets["retry_max"].insert(0, str(retry.get("max_attempts", 3)))
-        self._sys_widgets["retry_max"].grid(row=0, column=1, padx=4, pady=8, sticky="w")
+        self._sys_widgets["retry_max"].grid(row=0, column=1, padx=2, pady=6, sticky="w")
 
-        ctk.CTkLabel(sf2, text="退避因子").grid(row=0, column=2, padx=8, pady=8, sticky="w")
-        self._sys_widgets["retry_backoff"] = ctk.CTkEntry(sf2, width=80)
+        ctk.CTkLabel(sf2, text="退避因子", font=ctk.CTkFont(size=11)).grid(row=0, column=2, padx=6, pady=6, sticky="w")
+        self._sys_widgets["retry_backoff"] = ctk.CTkEntry(sf2, width=60, font=ctk.CTkFont(size=11))
         self._sys_widgets["retry_backoff"].insert(0, str(retry.get("backoff_factor", 2)))
-        self._sys_widgets["retry_backoff"].grid(row=0, column=3, padx=4, pady=8, sticky="w")
+        self._sys_widgets["retry_backoff"].grid(row=0, column=3, padx=2, pady=6, sticky="w")
 
         # 代理
-        sf3 = ctk.CTkFrame(container, corner_radius=8)
-        sf3.pack(fill="x", padx=12, pady=4)
+        sf3 = ctk.CTkFrame(container, corner_radius=6)
+        sf3.pack(fill="x", padx=10, pady=3)
         sf3.grid_columnconfigure((1, 3), weight=1)
 
         self._sys_proxy_var = ctk.BooleanVar(value=proxy.get("enabled", False))
-        ctk.CTkLabel(sf3, text="启用代理").grid(row=0, column=0, padx=8, pady=8, sticky="w")
-        ctk.CTkSwitch(sf3, text="", variable=self._sys_proxy_var).grid(row=0, column=1, padx=4, pady=8, sticky="w")
+        ctk.CTkLabel(sf3, text="启用代理", font=ctk.CTkFont(size=11)).grid(row=0, column=0, padx=6, pady=6, sticky="w")
+        ctk.CTkSwitch(sf3, text="", variable=self._sys_proxy_var, font=ctk.CTkFont(size=10)).grid(
+            row=0, column=1, padx=2, pady=6, sticky="w"
+        )
 
-        ctk.CTkLabel(sf3, text="HTTP 代理").grid(row=1, column=0, padx=8, pady=4, sticky="w")
-        self._sys_widgets["proxy_http"] = ctk.CTkEntry(sf3)
+        ctk.CTkLabel(sf3, text="HTTP 代理", font=ctk.CTkFont(size=11)).grid(row=1, column=0, padx=6, pady=3, sticky="w")
+        self._sys_widgets["proxy_http"] = ctk.CTkEntry(sf3, font=ctk.CTkFont(size=11))
         self._sys_widgets["proxy_http"].insert(0, proxy.get("http", ""))
-        self._sys_widgets["proxy_http"].grid(row=1, column=1, columnspan=3, padx=4, pady=4, sticky="ew")
+        self._sys_widgets["proxy_http"].grid(row=1, column=1, columnspan=3, padx=2, pady=3, sticky="ew")
 
-        ctk.CTkLabel(sf3, text="HTTPS 代理").grid(row=2, column=0, padx=8, pady=4, sticky="w")
-        self._sys_widgets["proxy_https"] = ctk.CTkEntry(sf3)
+        ctk.CTkLabel(sf3, text="HTTPS 代理", font=ctk.CTkFont(size=11)).grid(
+            row=2, column=0, padx=6, pady=3, sticky="w"
+        )
+        self._sys_widgets["proxy_https"] = ctk.CTkEntry(sf3, font=ctk.CTkFont(size=11))
         self._sys_widgets["proxy_https"].insert(0, proxy.get("https", ""))
-        self._sys_widgets["proxy_https"].grid(row=2, column=1, columnspan=3, padx=4, pady=4, sticky="ew")
+        self._sys_widgets["proxy_https"].grid(row=2, column=1, columnspan=3, padx=2, pady=3, sticky="ew")
 
         # 连接池
-        sf4 = ctk.CTkFrame(container, corner_radius=8)
-        sf4.pack(fill="x", padx=12, pady=4)
+        sf4 = ctk.CTkFrame(container, corner_radius=6)
+        sf4.pack(fill="x", padx=10, pady=3)
         sf4.grid_columnconfigure((1, 3, 5), weight=1)
 
-        ctk.CTkLabel(sf4, text="最大连接数").grid(row=0, column=0, padx=8, pady=8, sticky="w")
-        self._sys_widgets["pool_max_conn"] = ctk.CTkEntry(sf4, width=80)
+        ctk.CTkLabel(sf4, text="最大连接数", font=ctk.CTkFont(size=11)).grid(
+            row=0, column=0, padx=6, pady=6, sticky="w"
+        )
+        self._sys_widgets["pool_max_conn"] = ctk.CTkEntry(sf4, width=60, font=ctk.CTkFont(size=11))
         self._sys_widgets["pool_max_conn"].insert(0, str(pool.get("max_connections", 100)))
-        self._sys_widgets["pool_max_conn"].grid(row=0, column=1, padx=4, pady=8, sticky="w")
+        self._sys_widgets["pool_max_conn"].grid(row=0, column=1, padx=2, pady=6, sticky="w")
 
-        ctk.CTkLabel(sf4, text="保活连接数").grid(row=0, column=2, padx=8, pady=8, sticky="w")
-        self._sys_widgets["pool_keepalive"] = ctk.CTkEntry(sf4, width=80)
+        ctk.CTkLabel(sf4, text="保活连接数", font=ctk.CTkFont(size=11)).grid(
+            row=0, column=2, padx=6, pady=6, sticky="w"
+        )
+        self._sys_widgets["pool_keepalive"] = ctk.CTkEntry(sf4, width=60, font=ctk.CTkFont(size=11))
         self._sys_widgets["pool_keepalive"].insert(0, str(pool.get("max_keepalive_connections", 20)))
-        self._sys_widgets["pool_keepalive"].grid(row=0, column=3, padx=4, pady=8, sticky="w")
+        self._sys_widgets["pool_keepalive"].grid(row=0, column=3, padx=2, pady=6, sticky="w")
 
-        ctk.CTkLabel(sf4, text="保活过期 (s)").grid(row=0, column=4, padx=8, pady=8, sticky="w")
-        self._sys_widgets["pool_keepalive_expiry"] = ctk.CTkEntry(sf4, width=80)
+        ctk.CTkLabel(sf4, text="保活过期 (s)", font=ctk.CTkFont(size=11)).grid(
+            row=0, column=4, padx=6, pady=6, sticky="w"
+        )
+        self._sys_widgets["pool_keepalive_expiry"] = ctk.CTkEntry(sf4, width=60, font=ctk.CTkFont(size=11))
         self._sys_widgets["pool_keepalive_expiry"].insert(0, str(pool.get("keepalive_expiry", 30)))
-        self._sys_widgets["pool_keepalive_expiry"].grid(row=0, column=5, padx=4, pady=8, sticky="w")
+        self._sys_widgets["pool_keepalive_expiry"].grid(row=0, column=5, padx=2, pady=6, sticky="w")
 
         # 流式
-        sf5 = ctk.CTkFrame(container, corner_radius=8)
-        sf5.pack(fill="x", padx=12, pady=4)
+        sf5 = ctk.CTkFrame(container, corner_radius=6)
+        sf5.pack(fill="x", padx=10, pady=3)
         sf5.grid_columnconfigure((1, 3), weight=1)
 
-        ctk.CTkLabel(sf5, text="数据块大小 (bytes)").grid(row=0, column=0, padx=8, pady=8, sticky="w")
-        self._sys_widgets["stream_chunk"] = ctk.CTkEntry(sf5, width=80)
+        ctk.CTkLabel(sf5, text="数据块大小 (bytes)", font=ctk.CTkFont(size=11)).grid(
+            row=0, column=0, padx=6, pady=6, sticky="w"
+        )
+        self._sys_widgets["stream_chunk"] = ctk.CTkEntry(sf5, width=60, font=ctk.CTkFont(size=11))
         self._sys_widgets["stream_chunk"].insert(0, str(streaming.get("chunk_size", 1024)))
-        self._sys_widgets["stream_chunk"].grid(row=0, column=1, padx=4, pady=8, sticky="w")
+        self._sys_widgets["stream_chunk"].grid(row=0, column=1, padx=2, pady=6, sticky="w")
 
-        ctk.CTkLabel(sf5, text="缓冲区大小 (bytes)").grid(row=0, column=2, padx=8, pady=8, sticky="w")
-        self._sys_widgets["stream_buffer"] = ctk.CTkEntry(sf5, width=80)
+        ctk.CTkLabel(sf5, text="缓冲区大小 (bytes)", font=ctk.CTkFont(size=11)).grid(
+            row=0, column=2, padx=6, pady=6, sticky="w"
+        )
+        self._sys_widgets["stream_buffer"] = ctk.CTkEntry(sf5, width=60, font=ctk.CTkFont(size=11))
         self._sys_widgets["stream_buffer"].insert(0, str(streaming.get("buffer_size", 8192)))
-        self._sys_widgets["stream_buffer"].grid(row=0, column=3, padx=4, pady=8, sticky="w")
+        self._sys_widgets["stream_buffer"].grid(row=0, column=3, padx=2, pady=6, sticky="w")
 
         # ---- 熔断器 ----
         self._build_section_header(container, "熔断器设置")
-        sf6 = ctk.CTkFrame(container, corner_radius=8)
-        sf6.pack(fill="x", padx=12, pady=4)
+        sf6 = ctk.CTkFrame(container, corner_radius=6)
+        sf6.pack(fill="x", padx=10, pady=3)
         sf6.grid_columnconfigure((1, 3), weight=1)
 
         self._sys_cb_var = ctk.BooleanVar(value=cb.get("enabled", True))
-        ctk.CTkLabel(sf6, text="启用熔断器").grid(row=0, column=0, padx=8, pady=8, sticky="w")
-        ctk.CTkSwitch(sf6, text="", variable=self._sys_cb_var).grid(row=0, column=1, padx=4, pady=8, sticky="w")
+        ctk.CTkLabel(sf6, text="启用熔断器", font=ctk.CTkFont(size=11)).grid(
+            row=0, column=0, padx=6, pady=6, sticky="w"
+        )
+        ctk.CTkSwitch(sf6, text="", variable=self._sys_cb_var, font=ctk.CTkFont(size=10)).grid(
+            row=0, column=1, padx=2, pady=6, sticky="w"
+        )
 
-        ctk.CTkLabel(sf6, text="失败阈值").grid(row=1, column=0, padx=8, pady=4, sticky="w")
-        self._sys_widgets["cb_threshold"] = ctk.CTkEntry(sf6, width=80)
+        ctk.CTkLabel(sf6, text="失败阈值", font=ctk.CTkFont(size=11)).grid(row=1, column=0, padx=6, pady=3, sticky="w")
+        self._sys_widgets["cb_threshold"] = ctk.CTkEntry(sf6, width=60, font=ctk.CTkFont(size=11))
         self._sys_widgets["cb_threshold"].insert(0, str(cb.get("failure_threshold", 5)))
-        self._sys_widgets["cb_threshold"].grid(row=1, column=1, padx=4, pady=4, sticky="w")
+        self._sys_widgets["cb_threshold"].grid(row=1, column=1, padx=2, pady=3, sticky="w")
 
-        ctk.CTkLabel(sf6, text="恢复超时 (s)").grid(row=1, column=2, padx=8, pady=4, sticky="w")
-        self._sys_widgets["cb_recovery"] = ctk.CTkEntry(sf6, width=80)
+        ctk.CTkLabel(sf6, text="恢复超时 (s)", font=ctk.CTkFont(size=11)).grid(
+            row=1, column=2, padx=6, pady=3, sticky="w"
+        )
+        self._sys_widgets["cb_recovery"] = ctk.CTkEntry(sf6, width=60, font=ctk.CTkFont(size=11))
         self._sys_widgets["cb_recovery"].insert(0, str(cb.get("recovery_timeout", 60)))
-        self._sys_widgets["cb_recovery"].grid(row=1, column=3, padx=4, pady=4, sticky="w")
+        self._sys_widgets["cb_recovery"].grid(row=1, column=3, padx=2, pady=3, sticky="w")
 
         # ---- 日志 ----
         self._build_section_header(container, "日志设置")
         logging_cfg = config.get("logging", {})
 
-        sf7 = ctk.CTkFrame(container, corner_radius=8)
-        sf7.pack(fill="x", padx=12, pady=4)
+        sf7 = ctk.CTkFrame(container, corner_radius=6)
+        sf7.pack(fill="x", padx=10, pady=3)
         sf7.grid_columnconfigure((1, 3, 5), weight=1)
 
-        ctk.CTkLabel(sf7, text="日志级别").grid(row=0, column=0, padx=8, pady=8, sticky="w")
-        self._sys_widgets["log_level"] = ctk.CTkComboBox(sf7, values=["DEBUG", "INFO", "WARNING", "ERROR"], width=120)
+        ctk.CTkLabel(sf7, text="日志级别", font=ctk.CTkFont(size=11)).grid(row=0, column=0, padx=6, pady=6, sticky="w")
+        self._sys_widgets["log_level"] = ctk.CTkComboBox(
+            sf7, values=["DEBUG", "INFO", "WARNING", "ERROR"], width=100, font=ctk.CTkFont(size=11)
+        )
         self._sys_widgets["log_level"].set(logging_cfg.get("level", "INFO"))
-        self._sys_widgets["log_level"].grid(row=0, column=1, padx=4, pady=8, sticky="w")
+        self._sys_widgets["log_level"].grid(row=0, column=1, padx=2, pady=6, sticky="w")
 
-        ctk.CTkLabel(sf7, text="日志文件").grid(row=0, column=2, padx=8, pady=8, sticky="w")
-        self._sys_widgets["log_file"] = ctk.CTkEntry(sf7, width=150)
+        ctk.CTkLabel(sf7, text="日志文件", font=ctk.CTkFont(size=11)).grid(row=0, column=2, padx=6, pady=6, sticky="w")
+        self._sys_widgets["log_file"] = ctk.CTkEntry(sf7, width=120, font=ctk.CTkFont(size=11))
         self._sys_widgets["log_file"].insert(0, logging_cfg.get("file", "autoapi.log"))
-        self._sys_widgets["log_file"].grid(row=0, column=3, padx=4, pady=8, sticky="w")
+        self._sys_widgets["log_file"].grid(row=0, column=3, padx=2, pady=6, sticky="w")
 
-        ctk.CTkLabel(sf7, text="最大文件 (MB)").grid(row=0, column=4, padx=8, pady=8, sticky="w")
-        self._sys_widgets["log_max_size"] = ctk.CTkEntry(sf7, width=80)
+        ctk.CTkLabel(sf7, text="最大文件 (MB)", font=ctk.CTkFont(size=11)).grid(
+            row=0, column=4, padx=6, pady=6, sticky="w"
+        )
+        self._sys_widgets["log_max_size"] = ctk.CTkEntry(sf7, width=60, font=ctk.CTkFont(size=11))
         self._sys_widgets["log_max_size"].insert(0, str(logging_cfg.get("max_size_mb", 10)))
-        self._sys_widgets["log_max_size"].grid(row=0, column=5, padx=4, pady=8, sticky="w")
+        self._sys_widgets["log_max_size"].grid(row=0, column=5, padx=2, pady=6, sticky="w")
 
         # ---- 缓存 ----
         self._build_section_header(container, "缓存设置")
         cache_cfg = config.get("cache", {})
 
-        sf8 = ctk.CTkFrame(container, corner_radius=8)
-        sf8.pack(fill="x", padx=12, pady=4)
+        sf8 = ctk.CTkFrame(container, corner_radius=6)
+        sf8.pack(fill="x", padx=10, pady=3)
         sf8.grid_columnconfigure((1, 3), weight=1)
 
         self._sys_cache_var = ctk.BooleanVar(value=cache_cfg.get("enabled", True))
-        ctk.CTkLabel(sf8, text="启用缓存").grid(row=0, column=0, padx=8, pady=8, sticky="w")
-        ctk.CTkSwitch(sf8, text="", variable=self._sys_cache_var).grid(row=0, column=1, padx=4, pady=8, sticky="w")
+        ctk.CTkLabel(sf8, text="启用缓存", font=ctk.CTkFont(size=11)).grid(row=0, column=0, padx=6, pady=6, sticky="w")
+        ctk.CTkSwitch(sf8, text="", variable=self._sys_cache_var, font=ctk.CTkFont(size=10)).grid(
+            row=0, column=1, padx=2, pady=6, sticky="w"
+        )
 
-        ctk.CTkLabel(sf8, text="缓存 TTL (s)").grid(row=0, column=2, padx=8, pady=8, sticky="w")
-        self._sys_widgets["cache_ttl"] = ctk.CTkEntry(sf8, width=80)
+        ctk.CTkLabel(sf8, text="缓存 TTL (s)", font=ctk.CTkFont(size=11)).grid(
+            row=0, column=2, padx=6, pady=6, sticky="w"
+        )
+        self._sys_widgets["cache_ttl"] = ctk.CTkEntry(sf8, width=60, font=ctk.CTkFont(size=11))
         self._sys_widgets["cache_ttl"].insert(0, str(cache_cfg.get("ttl", 60)))
-        self._sys_widgets["cache_ttl"].grid(row=0, column=3, padx=4, pady=8, sticky="w")
+        self._sys_widgets["cache_ttl"].grid(row=0, column=3, padx=2, pady=6, sticky="w")
 
         # 错误消息
         self._build_section_header(container, "错误消息")
         err_cfg = config.get("error_messages", {})
 
-        sf9 = ctk.CTkFrame(container, corner_radius=8)
-        sf9.pack(fill="x", padx=12, pady=4)
+        sf9 = ctk.CTkFrame(container, corner_radius=6)
+        sf9.pack(fill="x", padx=10, pady=3)
         sf9.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(sf9, text="429 错误消息").grid(row=0, column=0, padx=8, pady=8, sticky="w")
-        self._sys_widgets["err_429"] = ctk.CTkEntry(sf9)
+        ctk.CTkLabel(sf9, text="429 错误消息", font=ctk.CTkFont(size=11)).grid(
+            row=0, column=0, padx=6, pady=6, sticky="w"
+        )
+        self._sys_widgets["err_429"] = ctk.CTkEntry(sf9, font=ctk.CTkFont(size=11))
         self._sys_widgets["err_429"].insert(0, err_cfg.get("429", ""))
-        self._sys_widgets["err_429"].grid(row=0, column=1, padx=4, pady=8, sticky="ew")
+        self._sys_widgets["err_429"].grid(row=0, column=1, padx=2, pady=6, sticky="ew")
 
-        ctk.CTkLabel(sf9, text="500 错误消息").grid(row=1, column=0, padx=8, pady=4, sticky="w")
-        self._sys_widgets["err_500"] = ctk.CTkEntry(sf9)
+        ctk.CTkLabel(sf9, text="500 错误消息", font=ctk.CTkFont(size=11)).grid(
+            row=1, column=0, padx=6, pady=3, sticky="w"
+        )
+        self._sys_widgets["err_500"] = ctk.CTkEntry(sf9, font=ctk.CTkFont(size=11))
         self._sys_widgets["err_500"].insert(0, err_cfg.get("500", ""))
-        self._sys_widgets["err_500"].grid(row=1, column=1, padx=4, pady=4, sticky="ew")
+        self._sys_widgets["err_500"].grid(row=1, column=1, padx=2, pady=3, sticky="ew")
 
         # 保存按钮
         ctk.CTkButton(
             container,
             text="💾 保存系统配置",
             command=self._save_system_config,
-            font=ctk.CTkFont(size=15, weight="bold"),
-            height=44,
-        ).pack(padx=12, pady=(16, 30), fill="x")
+            font=ctk.CTkFont(size=13, weight="bold"),
+            height=34,
+        ).pack(padx=10, pady=(10, 20), fill="x")
 
     def _build_section_header(self, parent, title):
         frame = ctk.CTkFrame(parent, fg_color="transparent")
-        frame.pack(fill="x", padx=8, pady=(16, 4))
-        ctk.CTkLabel(frame, text=title, font=ctk.CTkFont(size=17, weight="bold"), text_color=("navy", "cyan")).pack(
+        frame.pack(fill="x", padx=6, pady=(10, 2))
+        ctk.CTkLabel(frame, text=title, font=ctk.CTkFont(size=14, weight="bold"), text_color=("navy", "cyan")).pack(
             anchor="w", padx=4
         )
-        ctk.CTkFrame(frame, height=2, fg_color=("gray70", "gray30")).pack(fill="x", padx=4, pady=(4, 0))
+        ctk.CTkFrame(frame, height=1, fg_color=("gray70", "gray30")).pack(fill="x", padx=4, pady=(2, 0))
 
     def _save_system_config(self):
         fwd = self.system_data.setdefault("forwarding", {})
@@ -900,25 +965,26 @@ class AwaiUI(ctk.CTk):
     # ==================== 自动规则 ====================
 
     def _build_auto_rules(self):
-        container = ctk.CTkFrame(self.tab_auto_rules, corner_radius=0)
+        container = ctk.CTkFrame(self.tab_container, corner_radius=0)
         container.grid(row=0, column=0, sticky="nsew")
         container.grid_columnconfigure(0, weight=1)
         container.grid_rowconfigure(1, weight=1)
+        self.tab_frames["自动规则"] = container
 
         # 顶部操作栏
         top = ctk.CTkFrame(container, corner_radius=8)
         top.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         top.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(top, text="自动路由规则", font=ctk.CTkFont(size=16, weight="bold")).grid(
-            row=0, column=0, padx=16, pady=12, sticky="w"
+        ctk.CTkLabel(top, text="自动路由规则", font=ctk.CTkFont(size=13, weight="bold")).grid(
+            row=0, column=0, padx=12, pady=8, sticky="w"
         )
 
         btn_frame = ctk.CTkFrame(top, fg_color="transparent")
-        btn_frame.grid(row=0, column=1, padx=16, pady=8)
-        ctk.CTkButton(btn_frame, text="＋ 新增规则", command=self._add_auto_rule, font=ctk.CTkFont(size=12)).pack(
-            side="left", padx=2
-        )
+        btn_frame.grid(row=0, column=1, padx=12, pady=6)
+        ctk.CTkButton(
+            btn_frame, text="＋ 新增规则", command=self._add_auto_rule, font=ctk.CTkFont(size=10), height=26
+        ).pack(side="left", padx=2)
 
         # 规则列表
         scroll = ctk.CTkScrollableFrame(container, corner_radius=8)
@@ -943,27 +1009,27 @@ class AwaiUI(ctk.CTk):
             self._build_auto_rule_card(i, rule)
 
     def _build_auto_rule_card(self, idx: int, rule: dict):
-        card = ctk.CTkFrame(self._auto_rules_frame, corner_radius=8)
-        card.pack(fill="x", padx=8, pady=5)
+        card = ctk.CTkFrame(self._auto_rules_frame, corner_radius=6)
+        card.pack(fill="x", padx=6, pady=3)
         card.grid_columnconfigure(1, weight=1)
 
         actions = rule.setdefault("actions", {})
         quotation = actions.setdefault("quotation", {})
 
         # 名称
-        ctk.CTkLabel(card, text=f"规则名称", font=ctk.CTkFont(size=12, weight="bold")).grid(
-            row=0, column=0, padx=10, pady=(10, 2), sticky="w"
+        ctk.CTkLabel(card, text="规则名称", font=ctk.CTkFont(size=11, weight="bold")).grid(
+            row=0, column=0, padx=8, pady=(6, 2), sticky="w"
         )
 
-        name_entry = ctk.CTkEntry(card, font=ctk.CTkFont(size=13))
+        name_entry = ctk.CTkEntry(card, font=ctk.CTkFont(size=11))
         name_entry.insert(0, rule.get("name", ""))
-        name_entry.grid(row=0, column=1, padx=10, pady=(10, 2), sticky="ew")
+        name_entry.grid(row=0, column=1, padx=8, pady=(6, 2), sticky="ew")
         name_entry.bind("<FocusOut>", lambda e, i=idx, w=name_entry: self._update_auto_rule_name(i, w.get()))
 
         # 启用开关
         enable_frame = ctk.CTkFrame(card, fg_color="transparent")
-        enable_frame.grid(row=0, column=2, padx=10, pady=(10, 2), sticky="e")
-        ctk.CTkLabel(enable_frame, text="启用", font=ctk.CTkFont(size=12)).pack(side="left", padx=(0, 6))
+        enable_frame.grid(row=0, column=2, padx=8, pady=(6, 2), sticky="e")
+        ctk.CTkLabel(enable_frame, text="启用", font=ctk.CTkFont(size=10)).pack(side="left", padx=(0, 4))
         en_var = ctk.BooleanVar(value=str(rule.get("enable", "true")).lower() == "true")
 
         def toggle_enable(v, i=idx):
@@ -973,17 +1039,25 @@ class AwaiUI(ctk.CTk):
                 self._save_json(RULES_FILE, self.rules_data)
 
         en_sw = ctk.CTkSwitch(
-            enable_frame, text="", variable=en_var, command=lambda v=en_var, i=idx: toggle_enable(v.get(), i)
+            enable_frame,
+            text="",
+            variable=en_var,
+            command=lambda v=en_var, i=idx: toggle_enable(v.get(), i),
+            font=ctk.CTkFont(size=10),
         )
         en_sw.pack(side="right")
 
         # 选择模式
-        ctk.CTkLabel(card, text="选择模式", font=ctk.CTkFont(size=12, weight="bold")).grid(
-            row=1, column=0, padx=10, pady=4, sticky="w"
+        ctk.CTkLabel(card, text="选择模式", font=ctk.CTkFont(size=11, weight="bold")).grid(
+            row=1, column=0, padx=8, pady=2, sticky="w"
         )
         mode_var = ctk.StringVar(value=actions.get("rules", "priority"))
         mode_menu = ctk.CTkComboBox(
-            card, values=["priority", "load-balancing", "randomly"], variable=mode_var, width=140
+            card,
+            values=["priority", "load-balancing", "randomly"],
+            variable=mode_var,
+            width=120,
+            font=ctk.CTkFont(size=10),
         )
 
         def save_mode(choice, i=idx):
@@ -993,28 +1067,29 @@ class AwaiUI(ctk.CTk):
                 self._save_json(RULES_FILE, self.rules_data)
 
         mode_menu.configure(command=lambda c: save_mode(c))
-        mode_menu.grid(row=1, column=1, padx=10, pady=4, sticky="w")
+        mode_menu.grid(row=1, column=1, padx=8, pady=2, sticky="w")
 
         # 模型优先级
-        ctk.CTkLabel(
-            card, text="模型优先级（每行一个: 模型名 = 优先级）", font=ctk.CTkFont(size=12, weight="bold")
-        ).grid(row=2, column=0, padx=10, pady=(8, 2), sticky="nw")
+        ctk.CTkLabel(card, text="模型优先级（每行: 模型 = 值）", font=ctk.CTkFont(size=11, weight="bold")).grid(
+            row=2, column=0, padx=8, pady=(4, 2), sticky="nw"
+        )
 
-        q_text = ctk.CTkTextbox(card, height=80, font=ctk.CTkFont(size=12, family="Consolas"))
+        q_text = ctk.CTkTextbox(card, height=60, font=ctk.CTkFont(size=10, family="Consolas"))
         q_lines = [f"{k} = {v}" for k, v in quotation.items()]
         q_text.insert("0.0", "\n".join(q_lines))
-        q_text.grid(row=2, column=1, columnspan=2, padx=10, pady=(8, 2), sticky="ew")
+        q_text.grid(row=2, column=1, columnspan=2, padx=8, pady=(4, 2), sticky="ew")
 
         # 保存和删除按钮
         btn_row = ctk.CTkFrame(card, fg_color="transparent")
-        btn_row.grid(row=3, column=0, columnspan=3, padx=10, pady=(6, 10), sticky="ew")
+        btn_row.grid(row=3, column=0, columnspan=3, padx=8, pady=(4, 8), sticky="ew")
         btn_row.grid_columnconfigure((0, 1), weight=1)
 
         ctk.CTkButton(
             btn_row,
             text="💾 保存",
             command=lambda i=idx, q=q_text: self._save_auto_rule(i, q),
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(size=10),
+            height=26,
         ).pack(side="left", padx=2, fill="x", expand=True)
         ctk.CTkButton(
             btn_row,
@@ -1022,7 +1097,8 @@ class AwaiUI(ctk.CTk):
             command=lambda i=idx: self._delete_auto_rule(i),
             fg_color="#c62828",
             hover_color="#b71c1c",
-            font=ctk.CTkFont(size=12),
+            font=ctk.CTkFont(size=10),
+            height=26,
         ).pack(side="right", padx=2, fill="x", expand=True)
 
     def _update_auto_rule_name(self, idx: int, name: str):
@@ -1081,38 +1157,40 @@ class AwaiUI(ctk.CTk):
     # ==================== 冷却管理 ====================
 
     def _build_cooldown(self):
-        container = ctk.CTkFrame(self.tab_cooldown, corner_radius=0)
+        container = ctk.CTkFrame(self.tab_container, corner_radius=0)
         container.grid(row=0, column=0, sticky="nsew")
         container.grid_columnconfigure(0, weight=1)
         container.grid_rowconfigure(1, weight=1)
+        self.tab_frames["冷却管理"] = container
 
         # 顶部
         top = ctk.CTkFrame(container, corner_radius=8)
         top.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         top.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(top, text="冷却状态管理", font=ctk.CTkFont(size=16, weight="bold")).grid(
-            row=0, column=0, padx=16, pady=12, sticky="w"
+        ctk.CTkLabel(top, text="冷却状态管理", font=ctk.CTkFont(size=13, weight="bold")).grid(
+            row=0, column=0, padx=12, pady=8, sticky="w"
         )
 
         btn_frame = ctk.CTkFrame(top, fg_color="transparent")
-        btn_frame.grid(row=0, column=1, padx=16, pady=8)
+        btn_frame.grid(row=0, column=1, padx=12, pady=6)
 
         self.cooldown_auto_refresh = ctk.BooleanVar(value=True)
         ctk.CTkCheckBox(
-            btn_frame, text="自动刷新", variable=self.cooldown_auto_refresh, font=ctk.CTkFont(size=12)
-        ).pack(side="left", padx=4)
-        ctk.CTkButton(btn_frame, text="↻ 刷新", command=self._refresh_cooldown, font=ctk.CTkFont(size=12)).pack(
-            side="left", padx=4
-        )
+            btn_frame, text="自动刷新", variable=self.cooldown_auto_refresh, font=ctk.CTkFont(size=10)
+        ).pack(side="left", padx=2)
+        ctk.CTkButton(
+            btn_frame, text="↻ 刷新", command=self._refresh_cooldown, font=ctk.CTkFont(size=10), height=26
+        ).pack(side="left", padx=2)
         ctk.CTkButton(
             btn_frame,
             text="✕ 全部清除",
             command=self._clear_all_cooldown,
             fg_color="#c62828",
             hover_color="#b71c1c",
-            font=ctk.CTkFont(size=12),
-        ).pack(side="left", padx=4)
+            font=ctk.CTkFont(size=10),
+            height=26,
+        ).pack(side="left", padx=2)
 
         # 列表
         scroll = ctk.CTkScrollableFrame(container, corner_radius=8)
@@ -1122,15 +1200,24 @@ class AwaiUI(ctk.CTk):
 
         self._refresh_cooldown()
 
+        # 自动刷新冷却状态
+        def auto_refresh_cooldown():
+            while self._monitor_active:
+                if self.cooldown_auto_refresh.get():
+                    self.after(0, self._refresh_cooldown)
+                time.sleep(5)
+
+        threading.Thread(target=auto_refresh_cooldown, daemon=True).start()
+
     def _refresh_cooldown(self):
         for w in self._cooldown_frame.winfo_children():
             w.destroy()
 
-        header = ctk.CTkFrame(self._cooldown_frame, corner_radius=6, fg_color=("gray85", "gray15"))
-        header.pack(fill="x", padx=8, pady=2)
+        header = ctk.CTkFrame(self._cooldown_frame, corner_radius=4, fg_color=("gray85", "gray15"))
+        header.pack(fill="x", padx=6, pady=1)
         header.grid_columnconfigure((0, 1, 2), weight=1)
         for i, t in enumerate(["API 密钥", "模型", "剩余时间"]):
-            ctk.CTkLabel(header, text=t, font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=i, padx=8, pady=6)
+            ctk.CTkLabel(header, text=t, font=ctk.CTkFont(size=10, weight="bold")).grid(row=0, column=i, padx=6, pady=4)
 
         status = {}
 
@@ -1157,32 +1244,33 @@ class AwaiUI(ctk.CTk):
 
         for api_key, models in status.items():
             for model, remaining in models.items():
-                row = ctk.CTkFrame(self._cooldown_frame, corner_radius=4)
-                row.pack(fill="x", padx=8, pady=1)
+                row = ctk.CTkFrame(self._cooldown_frame, corner_radius=3)
+                row.pack(fill="x", padx=6, pady=1)
                 row.grid_columnconfigure((0, 1, 2), weight=1)
 
-                ctk.CTkLabel(row, text=api_key, font=ctk.CTkFont(size=11, family="Consolas")).grid(
-                    row=0, column=0, padx=8, pady=4, sticky="w"
+                ctk.CTkLabel(row, text=api_key, font=ctk.CTkFont(size=9, family="Consolas")).grid(
+                    row=0, column=0, padx=6, pady=2, sticky="w"
                 )
-                ctk.CTkLabel(row, text=model, font=ctk.CTkFont(size=11)).grid(
-                    row=0, column=1, padx=8, pady=4, sticky="w"
+                ctk.CTkLabel(row, text=model, font=ctk.CTkFont(size=9)).grid(
+                    row=0, column=1, padx=6, pady=2, sticky="w"
                 )
 
                 remaining_str = f"{int(remaining)}s" if remaining > 0 else "已过期"
                 ctk.CTkLabel(
                     row,
                     text=remaining_str,
-                    font=ctk.CTkFont(size=11),
+                    font=ctk.CTkFont(size=9),
                     text_color="orange" if remaining > 0 else "gray",
-                ).grid(row=0, column=2, padx=8, pady=4, sticky="w")
+                ).grid(row=0, column=2, padx=6, pady=2, sticky="w")
 
                 ctk.CTkButton(
                     row,
                     text="清除",
-                    width=60,
+                    width=50,
                     command=lambda k=api_key, m=model: self._clear_cooldown_item(k, m),
-                    font=ctk.CTkFont(size=10),
-                ).grid(row=0, column=3, padx=8, pady=2)
+                    font=ctk.CTkFont(size=9),
+                    height=22,
+                ).grid(row=0, column=3, padx=6, pady=2)
 
     def _clear_cooldown_item(self, api_key: str, model: str):
         if self._is_server_running():
@@ -1209,15 +1297,6 @@ class AwaiUI(ctk.CTk):
             pass
         self._log("已清除所有冷却状态")
         self._refresh_cooldown()
-
-        # 自动刷新冷却状态
-        def auto_refresh_cooldown():
-            while self._monitor_active:
-                if hasattr(self, "cooldown_auto_refresh") and self.cooldown_auto_refresh.get():
-                    self.after(0, self._refresh_cooldown)
-                time.sleep(5)
-
-        threading.Thread(target=auto_refresh_cooldown, daemon=True).start()
 
     # ==================== 服务控制 ====================
 
@@ -1392,5 +1471,5 @@ class AwaiUI(ctk.CTk):
 
 
 if __name__ == "__main__":
-    app = AutoAPIUI()
+    app = AwaiUI()
     app.mainloop()
