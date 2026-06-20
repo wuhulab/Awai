@@ -62,7 +62,6 @@ jobs:
           pyinstaller --onedir --console --name "AutoAPI-Server" `
             --add-data "System.json;System.json" `
             --add-data "rules.json.example;rules.json.example" `
-            --runtime-hook ".github\build\hook_fix_paths.py" `
             --hidden-import uvicorn `
             --hidden-import uvicorn.logging `
             --hidden-import uvicorn.loops.auto `
@@ -81,7 +80,6 @@ jobs:
           pyinstaller --onedir --windowed --name "AutoAPI-UI" `
             --add-data "System.json;System.json" `
             --add-data "rules.json.example;rules.json.example" `
-            --runtime-hook ".github\build\hook_fix_paths.py" `
             --hidden-import customtkinter `
             --hidden-import pystray `
             --hidden-import PIL `
@@ -137,7 +135,6 @@ jobs:
           pyinstaller --onedir --console --name "AutoAPI-Server" \
             --add-data "System.json:System.json" \
             --add-data "rules.json.example:rules.json.example" \
-            --runtime-hook ".github/build/hook_fix_paths.py" \
             --hidden-import uvicorn \
             --hidden-import uvicorn.logging \
             --hidden-import uvicorn.loops.auto \
@@ -154,7 +151,6 @@ jobs:
           pyinstaller --onedir --windowed --name "AutoAPI-UI" \
             --add-data "System.json:System.json" \
             --add-data "rules.json.example:rules.json.example" \
-            --runtime-hook ".github/build/hook_fix_paths.py" \
             --hidden-import customtkinter \
             --hidden-import pystray \
             --hidden-import rumps \
@@ -198,7 +194,8 @@ jobs:
       - name: Install system deps
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq fpm libfuse2 patchelf desktop-file-utils tk-dev python3-tk
+          sudo apt-get install -y -qq ruby-dev libfuse2 patchelf desktop-file-utils tk-dev python3-tk
+          sudo gem install fpm --no-document
 
       - run: pip install --upgrade pip
       - run: pip install -r requirements.txt pyinstaller
@@ -208,7 +205,6 @@ jobs:
           pyinstaller --onedir --console --name "AutoAPI-Server" \
             --add-data "System.json:System.json" \
             --add-data "rules.json.example:rules.json.example" \
-            --runtime-hook ".github/build/hook_fix_paths.py" \
             --hidden-import uvicorn \
             --hidden-import uvicorn.logging \
             --hidden-import uvicorn.loops.auto \
@@ -225,7 +221,6 @@ jobs:
           pyinstaller --onedir --windowed --name "AutoAPI-UI" \
             --add-data "System.json:System.json" \
             --add-data "rules.json.example:rules.json.example" \
-            --runtime-hook ".github/build/hook_fix_paths.py" \
             --hidden-import customtkinter \
             --hidden-import pystray \
             --hidden-import PIL \

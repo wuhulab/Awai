@@ -91,8 +91,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 初始化组件
-BASE_DIR = Path(__file__).parent
+# 初始化组件（处理 PyInstaller 打包后的路径）
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).parent
+else:
+    BASE_DIR = Path(__file__).parent
 
 # 初始化系统配置
 system_config = SystemConfig(BASE_DIR)

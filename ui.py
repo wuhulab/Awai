@@ -37,7 +37,10 @@ except ImportError:
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
-BASE_DIR = Path(__file__).parent
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).parent
+else:
+    BASE_DIR = Path(__file__).parent
 RULES_FILE = BASE_DIR / "rules.json"
 SYSTEM_CONFIG_FILE = BASE_DIR / "System.json"
 
