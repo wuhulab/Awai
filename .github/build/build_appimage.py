@@ -40,10 +40,9 @@ def main() -> None:
         "Name=AutoAPI",
         "Comment=AI-API Forwarding Tool",
         "Exec=autoapi-ui",
-        "Icon=autoapi",
         "Terminal=false",
         "Type=Application",
-        "Categories=Network;Utility;",
+        "Categories=Network;",
         "",
     ]
     desktop.write_text("\n".join(lines))

@@ -60,10 +60,9 @@ def main() -> None:
         "Name=AutoAPI\n"
         "Comment=AI-API Forwarding Tool\n"
         "Exec=autoapi-ui\n"
-        "Icon=autoapi\n"
         "Terminal=false\n"
         "Type=Application\n"
-        "Categories=Network;Utility;\n"
+        "Categories=Network;\n"
     )
 
     print(f"Created packaging structure at {out.resolve()}")
