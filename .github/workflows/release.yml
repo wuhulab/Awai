@@ -275,13 +275,19 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.event.release.tag_name }}"
-          echo "Release tag: $TAG"
-          echo "All files in artifacts/:"
-          find artifacts/ -type f -ls
-          echo "---"
-          for f in artifacts/*/*.zip artifacts/*/*.dmg artifacts/*/*.deb artifacts/*/*.rpm artifacts/*/*.AppImage; do
-            [ -f "$f" ] || continue
-            echo "Uploading: $f"
-            gh release upload "$TAG" "$f" --clobber
+          REPO="${{ github.repository }}"
+          echo "Tag: $TAG  Repo: $REPO"
+          # Get release ID
+          RELEASE_ID=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/releases/tags/$TAG" | jq -r '.id')
+          echo "Release ID: $RELEASE_ID"
+          # Upload each asset
+          find artifacts/ -type f | while IFS= read -r f; do
+            basename "$f"
+            echo "Uploading $f..."
+            curl -s -H "Authorization: token $GH_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              "https://uploads.github.com/repos/$REPO/releases/$RELEASE_ID/assets?name=$(basename "$f")" \
+              --data-binary @"$f" | jq -r '.state // .message'
           done
           echo "Upload complete"
