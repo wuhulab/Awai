@@ -1,0 +1,290 @@
+name: Build and Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to release (leave empty to use latest)"
+        required: false
+
+env:
+  PYTHON_VERSION: "3.12"
+  APP_NAME: "AutoAPI"
+
+permissions:
+  contents: write
+
+jobs:
+  get-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(date +'%Y%m%d')-dev" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Windows ─────────────────────────────────
+  windows:
+    needs: get-version
+    strategy:
+      matrix:
+        arch: [x64, x86]
+        include:
+          - arch: x64
+            py-arch: x64
+          - arch: x86
+            py-arch: x86
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          architecture: ${{ matrix.py-arch }}
+
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt pyinstaller
+
+      - name: Build autoapi-server
+        run: |
+          pyinstaller --onedir --console --name "AutoAPI-Server" `
+            --add-data "System.json;System.json" `
+            --add-data "rules.json.example;rules.json.example" `
+            --runtime-hook ".github\build\hook_fix_paths.py" `
+            --hidden-import uvicorn `
+            --hidden-import uvicorn.logging `
+            --hidden-import uvicorn.loops.auto `
+            --hidden-import uvicorn.protocols.http.auto `
+            --hidden-import uvicorn.protocols.websockets.auto `
+            --hidden-import uvicorn.middleware.proxy_headers `
+            --hidden-import httpx `
+            --hidden-import httpx._transports.default `
+            --collect-submodules fastapi `
+            --collect-submodules pydantic `
+            --collect-submodules starlette `
+            main.py
+
+      - name: Build autoapi-ui
+        run: |
+          pyinstaller --onedir --windowed --name "AutoAPI-UI" `
+            --add-data "System.json;System.json" `
+            --add-data "rules.json.example;rules.json.example" `
+            --runtime-hook ".github\build\hook_fix_paths.py" `
+            --hidden-import customtkinter `
+            --hidden-import pystray `
+            --hidden-import PIL `
+            --hidden-import httpx `
+            ui.py
+
+      - name: Prepare MSI staging
+        run: |
+          New-Item -ItemType Directory -Force -Path msi-build
+          @("AutoAPI-Server", "AutoAPI-UI") | ForEach-Object {
+            Copy-Item "dist\$_\$_.exe" "msi-build\" -Force
+            Get-ChildItem "dist\$_" -Exclude "$_.exe","$_" | Copy-Item -Destination "msi-build\" -Force -Recurse
+          }
+          Copy-Item "System.json", "rules.json.example" "msi-build\" -Force
+
+      - name: Install WiX
+        run: |
+          choco install wixtoolset --no-progress -y --limit-output
+          $d = "C:\Program Files (x86)\WiX Toolset v3.11\bin"
+          if (Test-Path $d) { echo "$d" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append }
+
+      - name: Build MSI
+        run: |
+          $v = "${{ needs.get-version.outputs.version }}"
+          candle -arch ${{ matrix.arch }} ".github\wix\installer.wxs" `
+            -dAppVersion="$v" -dArch="${{ matrix.arch }}" -dSourceDir="msi-build" `
+            -ext WixUtilExtension -out "installer.wixobj"
+          light "installer.wixobj" -ext WixUtilExtension `
+            -out "${{ env.APP_NAME }}-${{ matrix.arch }}-${v}.msi"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: ${{ env.APP_NAME }}-${{ matrix.arch }}-*.msi
+          compression-level: 0
+
+  # ── macOS ───────────────────────────────────
+  macos:
+    needs: get-version
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - run: pip install --upgrade pip
+      - run: pip install -r requirements.txt pyinstaller rumps
+
+      - name: Build autoapi-server
+        run: |
+          pyinstaller --onedir --console --name "AutoAPI-Server" \
+            --add-data "System.json:System.json" \
+            --add-data "rules.json.example:rules.json.example" \
+            --runtime-hook ".github/build/hook_fix_paths.py" \
+            --hidden-import uvicorn \
+            --hidden-import uvicorn.logging \
+            --hidden-import uvicorn.loops.auto \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import httpx \
+            --collect-submodules fastapi \
+            --collect-submodules pydantic \
+            --collect-submodules starlette \
+            main.py
+
+      - name: Build autoapi-ui
+        run: |
+          pyinstaller --onedir --windowed --name "AutoAPI-UI" \
+            --add-data "System.json:System.json" \
+            --add-data "rules.json.example:rules.json.example" \
+            --runtime-hook ".github/build/hook_fix_paths.py" \
+            --hidden-import customtkinter \
+            --hidden-import pystray \
+            --hidden-import rumps \
+            --hidden-import PIL \
+            --hidden-import httpx \
+            ui.py
+
+      - name: Create .app bundle
+        run: |
+          python .github/build/build_macos_app.py \
+            --version "${{ needs.get-version.outputs.version }}" \
+            --dist-dir dist \
+            --output "${{ env.APP_NAME }}.app"
+
+      - name: Create DMG
+        run: |
+          V="${{ needs.get-version.outputs.version }}"
+          A="${{ env.APP_NAME }}.app"
+          D="${{ env.APP_NAME }}-${V}.dmg"
+          hdiutil create -srcfolder "$A" -volname "${{ env.APP_NAME }} ${V}" \
+            -format UDZO -imagekey zlib-level=9 "$D"
+          ls -lh "$D"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: ${{ env.APP_NAME }}-*.dmg
+          compression-level: 0
+
+  # ── Linux ───────────────────────────────────
+  linux:
+    needs: get-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fpm libfuse2 patchelf desktop-file-utils tk-dev python3-tk
+
+      - run: pip install --upgrade pip
+      - run: pip install -r requirements.txt pyinstaller
+
+      - name: Build autoapi-server
+        run: |
+          pyinstaller --onedir --console --name "AutoAPI-Server" \
+            --add-data "System.json:System.json" \
+            --add-data "rules.json.example:rules.json.example" \
+            --runtime-hook ".github/build/hook_fix_paths.py" \
+            --hidden-import uvicorn \
+            --hidden-import uvicorn.logging \
+            --hidden-import uvicorn.loops.auto \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import httpx \
+            --collect-submodules fastapi \
+            --collect-submodules pydantic \
+            --collect-submodules starlette \
+            main.py
+
+      - name: Build autoapi-ui
+        run: |
+          pyinstaller --onedir --windowed --name "AutoAPI-UI" \
+            --add-data "System.json:System.json" \
+            --add-data "rules.json.example:rules.json.example" \
+            --runtime-hook ".github/build/hook_fix_paths.py" \
+            --hidden-import customtkinter \
+            --hidden-import pystray \
+            --hidden-import PIL \
+            --hidden-import httpx \
+            ui.py
+
+      - name: Prepare packaging structure
+        run: |
+          python .github/build/build_linux_appdir.py \
+            --dist-dir dist \
+            --output pkg
+
+      - name: Build .deb
+        run: |
+          V="${{ needs.get-version.outputs.version }}"
+          fpm -s dir -t deb -n autoapi -v "$V" \
+            --vendor "AutoAPI Team" --license "AGPL-3.0-or-later" \
+            --url "https://github.com/yourusername/autoapi" \
+            --description "AI-API Forwarding Tool with Model Mapping and Auto-Routing" \
+            --deb-no-default-config-files \
+            -p "${{ env.APP_NAME }}-${V}-x86_64.deb" -C pkg usr/
+
+      - name: Build .rpm
+        run: |
+          V="${{ needs.get-version.outputs.version }}"
+          fpm -s dir -t rpm -n autoapi -v "$V" \
+            --vendor "AutoAPI Team" --license "AGPL-3.0-or-later" \
+            --url "https://github.com/yourusername/autoapi" \
+            --description "AI-API Forwarding Tool with Model Mapping and Auto-Routing" \
+            -p "${{ env.APP_NAME }}-${V}-x86_64.rpm" -C pkg usr/
+
+      - name: Build AppImage
+        run: |
+          V="${{ needs.get-version.outputs.version }}"
+          python3 .github/build/build_appimage.py \
+            --version "$V" \
+            --pkg-dir pkg/usr \
+            --output "${{ env.APP_NAME }}-${V}-x86_64.AppImage"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            ${{ env.APP_NAME }}-*.deb
+            ${{ env.APP_NAME }}-*.rpm
+            ${{ env.APP_NAME }}-*.AppImage
+          compression-level: 0
+
+  # ── Publish to Release ──────────────────────
+  publish:
+    if: github.event_name == 'release'
+    needs: [get-version, windows, macos, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+
+      - name: Upload assets to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          find . -type f \( -name "*.msi" -o -name "*.dmg" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -print0 | xargs -0 gh release upload "$TAG" --clobber

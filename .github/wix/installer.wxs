@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+
+  <?if $(var.Arch) = x64 ?>
+    <?define Win64 = "yes" ?>
+    <?define ProgramFilesFolder = "ProgramFiles64Folder" ?>
+    <?define Platform = "x64" ?>
+  <?else ?>
+    <?define Win64 = "no" ?>
+    <?define ProgramFilesFolder = "ProgramFilesFolder" ?>
+    <?define Platform = "x86" ?>
+  <?endif ?>
+
+  <Product Id="*"
+           Name="AutoAPI"
+           Language="1033"
+           Version="$(var.AppVersion)"
+           Manufacturer="AutoAPI Team"
+           UpgradeCode="A1B2C3D4-E5F6-7890-ABCD-EF1234567890">
+
+    <Package InstallerVersion="200"
+             Compressed="yes"
+             InstallScope="perMachine"
+             Platform="$(var.Platform)" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of AutoAPI is already installed." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Directory structure -->
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="$(var.ProgramFilesFolder)">
+        <Directory Id="APPLICATIONFOLDER" Name="AutoAPI">
+          <Directory Id="BIN_DIR" Name="bin">
+            <Component Id="ServerExe" Guid="*" Win64="$(var.Win64)">
+              <File Id="AutoAPIServerExe"
+                    Name="AutoAPI-Server.exe"
+                    DiskId="1"
+                    Source="$(var.SourceDir)\AutoAPI-Server.exe"
+                    KeyPath="yes" />
+            </Component>
+            <Component Id="UIExe" Guid="*" Win64="$(var.Win64)">
+              <File Id="AutoAPIUIExe"
+                    Name="AutoAPI-UI.exe"
+                    DiskId="1"
+                    Source="$(var.SourceDir)\AutoAPI-UI.exe"
+                    KeyPath="yes" />
+            </Component>
+          </Directory>
+          <Directory Id="CONFIG_DIR" Name="config">
+            <Component Id="ConfigFiles" Guid="*" Win64="$(var.Win64)">
+              <File Id="SystemJson"
+                    Name="System.json"
+                    DiskId="1"
+                    Source="$(var.SourceDir)\System.json"
+                    KeyPath="yes" />
+              <File Id="RulesExample"
+                    Name="rules.json.example"
+                    DiskId="1"
+                    Source="$(var.SourceDir)\rules.json.example" />
+            </Component>
+          </Directory>
+        </Directory>
+      </Directory>
+
+      <!-- Start Menu shortcuts -->
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="AutoAPI">
+          <Component Id="StartMenuShortcuts" Guid="*">
+            <Shortcut Id="ServerShortcut"
+                      Name="AutoAPI Server"
+                      Description="AutoAPI AI-API Forwarding Server"
+                      Target="[BIN_DIR]AutoAPI-Server.exe"
+                      WorkingDirectory="CONFIG_DIR" />
+            <Shortcut Id="UIShortcut"
+                      Name="AutoAPI Management Console"
+                      Description="AutoAPI Graphical Management Console"
+                      Target="[BIN_DIR]AutoAPI-UI.exe"
+                      WorkingDirectory="CONFIG_DIR" />
+            <Shortcut Id="UninstallShortcut"
+                      Name="Uninstall AutoAPI"
+                      Description="Uninstall AutoAPI"
+                      Target="[System64Folder]msiexec.exe"
+                      Arguments="/x [ProductCode]" />
+            <RemoveFolder Id="RemoveApplicationProgramsFolder"
+                          On="uninstall"
+                          Directory="ApplicationProgramsFolder" />
+            <RegistryValue Root="HKCU"
+                           Key="Software\AutoAPI"
+                           Name="installed"
+                           Type="integer"
+                           Value="1"
+                           KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <!-- Features -->
+    <Feature Id="ServerFeature" Title="AutoAPI Server" Level="1">
+      <ComponentRef Id="ServerExe" />
+      <ComponentRef Id="ConfigFiles" />
+      <ComponentRef Id="StartMenuShortcuts" />
+    </Feature>
+
+    <Feature Id="UIFeature" Title="AutoAPI Management Console" Level="1">
+      <ComponentRef Id="UIExe" />
+    </Feature>
+
+    <!-- UI -->
+    <UIRef Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="" />
+
+    <Property Id="ARPHELPLINK" Value="https://github.com/yourusername/autoapi" />
+    <Property Id="ARPCOMMENTS" Value="AI-API Forwarding Tool with Model Mapping and Auto-Routing" />
+  </Product>
+</Wix>

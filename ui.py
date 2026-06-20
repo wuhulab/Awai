@@ -43,14 +43,14 @@ SYSTEM_CONFIG_FILE = BASE_DIR / "System.json"
 
 PROVIDER_PRESETS = [
     {
-        "label": "🔥 fai.shunx.top (推荐)",
+        "label": "fai.shunx.top [推荐]",
         "name": "fai.shunx 转发",
         "url": "https://fai.shunx.top/v1",
         "key": "sk-your-key-here",
-        "mappings": {"gpt-4o": "gpt-4o"},
+        "mappings": {"claude-sonnet-4": "claude-sonnet-4"},
     },
     {
-        "label": "✨ ai.shunx.top",
+        "label": "ai.shunx.top",
         "name": "ai.shunx 转发",
         "url": "https://ai.shunx.top/v1",
         "key": "sk-your-key-here",
@@ -89,7 +89,7 @@ PROVIDER_PRESETS = [
         "name": "GLM 智谱",
         "url": "https://open.bigmodel.cn/api/paas/v4",
         "key": "your-zhipu-key",
-        "mappings": {"glm-4": "glm-4", "glm-4-flash": "glm-4-flash"},
+        "mappings": {},
     },
     {
         "label": "Kimi (月之暗面)",
@@ -316,10 +316,12 @@ class AwaiUI(ctk.CTk):
         title = ctk.CTkLabel(header, text="⚡ Awai 管理控制台", font=ctk.CTkFont(size=18, weight="bold"))
         title.grid(row=0, column=0, padx=16, pady=10, sticky="w")
 
-        self.status_label = ctk.CTkLabel(header, text="● 停止", font=ctk.CTkFont(size=12), text_color="gray")
+        self.status_label = ctk.CTkLabel(
+            header, text="● 停止", font=ctk.CTkFont(size=12), text_color=("gray30", "gray")
+        )
         self.status_label.grid(row=0, column=1, padx=8, pady=10, sticky="e")
 
-        self.uptime_label = ctk.CTkLabel(header, text="", font=ctk.CTkFont(size=11), text_color="gray")
+        self.uptime_label = ctk.CTkLabel(header, text="", font=ctk.CTkFont(size=11), text_color=("gray30", "gray"))
         self.uptime_label.grid(row=0, column=2, padx=(0, 16), pady=10, sticky="e")
 
     # ==================== 仪表盘 ====================
@@ -435,7 +437,7 @@ class AwaiUI(ctk.CTk):
         card = ctk.CTkFrame(parent, corner_radius=6, fg_color=("gray90", "gray20"))
         card.grid(row=0, column=col, padx=6, pady=10, sticky="nsew")
         card.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(card, text=title, font=ctk.CTkFont(size=10), text_color="gray").grid(
+        ctk.CTkLabel(card, text=title, font=ctk.CTkFont(size=10), text_color=("gray30", "gray")).grid(
             row=0, column=0, padx=8, pady=(6, 0)
         )
         lbl = ctk.CTkLabel(card, text=value, font=ctk.CTkFont(size=18, weight="bold"))
@@ -508,7 +510,7 @@ class AwaiUI(ctk.CTk):
         models = self.rules_data.get("model", [])
         if not models:
             lbl = ctk.CTkLabel(
-                self.provider_listbox, text="暂无供应商配置", font=ctk.CTkFont(size=12), text_color="gray"
+                self.provider_listbox, text="暂无供应商配置", font=ctk.CTkFont(size=12), text_color=("gray30", "gray")
             )
             lbl.pack(pady=20)
             self._show_provider_detail(None)
@@ -547,7 +549,10 @@ class AwaiUI(ctk.CTk):
 
         if idx is None:
             ctk.CTkLabel(
-                self.provider_detail_frame, text="请选择或新增一个供应商", font=ctk.CTkFont(size=14), text_color="gray"
+                self.provider_detail_frame,
+                text="请选择或新增一个供应商",
+                font=ctk.CTkFont(size=14),
+                text_color=("gray30", "gray"),
             ).pack(pady=40)
             return
 
@@ -693,7 +698,7 @@ class AwaiUI(ctk.CTk):
             ctk.CTkLabel(frame, text=preset["label"], font=ctk.CTkFont(size=13, weight="bold")).grid(
                 row=0, column=0, padx=10, pady=(6, 0), sticky="w"
             )
-            ctk.CTkLabel(frame, text=preset["url"], font=ctk.CTkFont(size=11), text_color="gray").grid(
+            ctk.CTkLabel(frame, text=preset["url"], font=ctk.CTkFont(size=11), text_color=("gray30", "gray")).grid(
                 row=1, column=0, padx=10, pady=(0, 4), sticky="w"
             )
 
@@ -767,7 +772,7 @@ class AwaiUI(ctk.CTk):
         )
         theme_menu.grid(row=0, column=1, padx=2, pady=6, sticky="w")
 
-        ctk.CTkLabel(sf_theme, text="切换后即时生效", font=ctk.CTkFont(size=10), text_color="gray").grid(
+        ctk.CTkLabel(sf_theme, text="切换后即时生效", font=ctk.CTkFont(size=10), text_color=("gray30", "gray")).grid(
             row=0, column=2, padx=6, pady=6, sticky="w"
         )
 
@@ -788,7 +793,7 @@ class AwaiUI(ctk.CTk):
                 sf_tray,
                 text="关闭窗口时最小化到系统托盘，API 服务持续运行",
                 font=ctk.CTkFont(size=10),
-                text_color="gray",
+                text_color=("gray30", "gray"),
             ).grid(row=0, column=2, padx=6, pady=6, sticky="w")
 
         # ---- 转发设置 ----
@@ -1119,7 +1124,7 @@ class AwaiUI(ctk.CTk):
         auto_rules = self.rules_data.get("auto", [])
         if not auto_rules:
             ctk.CTkLabel(
-                self._auto_rules_frame, text="暂无自动规则", font=ctk.CTkFont(size=13), text_color="gray"
+                self._auto_rules_frame, text="暂无自动规则", font=ctk.CTkFont(size=13), text_color=("gray30", "gray")
             ).pack(pady=30)
             return
 
@@ -1356,7 +1361,10 @@ class AwaiUI(ctk.CTk):
 
         if not status:
             ctk.CTkLabel(
-                self._cooldown_frame, text="✨ 当前没有冷却中的密钥", font=ctk.CTkFont(size=13), text_color="gray"
+                self._cooldown_frame,
+                text="✨ 当前没有冷却中的密钥",
+                font=ctk.CTkFont(size=13),
+                text_color=("gray30", "gray"),
             ).pack(pady=30)
             return
 
@@ -1378,7 +1386,7 @@ class AwaiUI(ctk.CTk):
                     row,
                     text=remaining_str,
                     font=ctk.CTkFont(size=9),
-                    text_color="orange" if remaining > 0 else "gray",
+                    text_color="orange" if remaining > 0 else ("gray30", "gray"),
                 ).grid(row=0, column=2, padx=6, pady=2, sticky="w")
 
                 ctk.CTkButton(
@@ -1490,8 +1498,8 @@ class AwaiUI(ctk.CTk):
             self.btn_stop.configure(state="normal")
             self.btn_restart.configure(state="normal")
         else:
-            self.status_label.configure(text="● 已停止", text_color="gray")
-            self.card_status.configure(text="已停止", text_color="gray")
+            self.status_label.configure(text="● 已停止", text_color=("gray30", "gray"))
+            self.card_status.configure(text="已停止", text_color=("gray30", "gray"))
             self.btn_start.configure(state="normal")
             self.btn_stop.configure(state="disabled")
             self.btn_restart.configure(state="disabled")
