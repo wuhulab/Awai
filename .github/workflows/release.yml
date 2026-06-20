@@ -273,4 +273,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.event.release.tag_name }}"
-          find . -type f \( -name "*.zip" -o -name "*.dmg" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -print0 | xargs -0 gh release upload "$TAG" --clobber
+          echo "Release tag: $TAG"
+          echo "Working directory contents:"
+          find . -maxdepth 3 -type d
+          echo "---"
+          FILES=$(find . -type f \( -name "*.zip" -o -name "*.dmg" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \))
+          echo "Found files:"
+          echo "$FILES"
+          echo "---"
+          echo "$FILES" | while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            echo "Uploading: $f"
+            gh release upload "$TAG" "$f" --clobber || echo "FAILED: $f"
+          done
+          echo "Upload complete"
