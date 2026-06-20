@@ -267,6 +267,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
       - name: Upload assets to Release
         env:
@@ -274,16 +276,12 @@ jobs:
         run: |
           TAG="${{ github.event.release.tag_name }}"
           echo "Release tag: $TAG"
-          echo "Working directory contents:"
-          find . -maxdepth 3 -type d
+          echo "All files in artifacts/:"
+          find artifacts/ -type f -ls
           echo "---"
-          FILES=$(find . -type f \( -name "*.zip" -o -name "*.dmg" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \))
-          echo "Found files:"
-          echo "$FILES"
-          echo "---"
-          echo "$FILES" | while IFS= read -r f; do
-            [ -z "$f" ] && continue
+          for f in artifacts/*/*.zip artifacts/*/*.dmg artifacts/*/*.deb artifacts/*/*.rpm artifacts/*/*.AppImage; do
+            [ -f "$f" ] || continue
             echo "Uploading: $f"
-            gh release upload "$TAG" "$f" --clobber || echo "FAILED: $f"
+            gh release upload "$TAG" "$f" --clobber
           done
           echo "Upload complete"
