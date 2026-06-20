@@ -25,7 +25,15 @@ try:
 except ImportError:
     httpx = None
 
-# 设置主题
+try:
+    import pystray
+    from PIL import Image, ImageDraw
+
+    _HAS_TRAY = True
+except ImportError:
+    _HAS_TRAY = False
+
+# 设置主题与字体
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
@@ -152,6 +160,13 @@ class AwaiUI(ctk.CTk):
         self.rules_data: Dict[str, Any] = self._load_json(RULES_FILE)
         self.system_data: Dict[str, Any] = self._load_json(SYSTEM_CONFIG_FILE)
 
+        # 恢复已保存的主题和轻量模式
+        saved_theme = self._safe_get(self.system_data, "appearance", "mode")
+        if saved_theme:
+            ctk.set_appearance_mode(saved_theme.capitalize())
+
+        self._lightweight_var = ctk.BooleanVar(value=self._safe_get(self.system_data, "tray", "lightweight") or False)
+
         # 网格布局
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=0)
@@ -177,15 +192,12 @@ class AwaiUI(ctk.CTk):
         self.tab_container.grid_columnconfigure(0, weight=1)
         self.tab_container.grid_rowconfigure(0, weight=1)
 
-        # 各标签页内容帧
+        # 各标签页内容帧 + 惰性加载标记
         self.tab_frames: Dict[str, ctk.CTkFrame] = {}
+        self._tab_built: Dict[str, bool] = {}
 
-        # 构建各标签内容（懒加载）
+        # 仅构建默认可见的仪表盘，其余在首次点击时构建
         self._build_dashboard()
-        self._build_providers()
-        self._build_system_config()
-        self._build_auto_rules()
-        self._build_cooldown()
 
         # 显示默认标签
         self._show_tab("仪表盘")
@@ -196,12 +208,27 @@ class AwaiUI(ctk.CTk):
         # 启动监控定时器
         self._start_monitors()
 
+        # 托盘图标
+        self._tray_icon: Optional[pystray.Icon] = None
+        if _HAS_TRAY:
+            self._build_tray_icon()
+
         # 关闭事件
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ==================== 标签切换 ====================
 
     def _switch_tab(self, name: str):
+        if name not in self._tab_built:
+            self._tab_built[name] = True
+            builder = {
+                "供应商配置": self._build_providers,
+                "系统配置": self._build_system_config,
+                "自动规则": self._build_auto_rules,
+                "冷却管理": self._build_cooldown,
+            }.get(name)
+            if builder:
+                builder()
         self._show_tab(name)
 
     def _show_tab(self, name: str):
@@ -209,6 +236,52 @@ class AwaiUI(ctk.CTk):
             f.grid_remove()
         if name in self.tab_frames:
             self.tab_frames[name].grid(row=0, column=0, sticky="nsew")
+
+    def _on_theme_change(self, choice: str):
+        ctk.set_appearance_mode(choice)
+        self.system_data["appearance"] = {"mode": choice.lower()}
+        self._save_json(SYSTEM_CONFIG_FILE, self.system_data)
+
+    def _on_lightweight_toggle(self):
+        val = self._lightweight_var.get()
+        self.system_data["tray"] = {"lightweight": val}
+        self._save_json(SYSTEM_CONFIG_FILE, self.system_data)
+        if val:
+            self._log("轻量模式已启用，关闭窗口后将最小化到托盘")
+        else:
+            self._log("轻量模式已禁用，关闭窗口将退出程序")
+
+    def _build_tray_icon(self):
+        if not _HAS_TRAY:
+            return
+        import webbrowser
+
+        img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        draw.ellipse([4, 4, 60, 60], fill="#2e7d32", outline="#1b5e20", width=3)
+        draw.text((16, 16), "A", fill="white", font=None)
+        menu = pystray.Menu(
+            pystray.MenuItem("显示窗口", lambda: self.after(0, self._show_from_tray)),
+            pystray.MenuItem("隐藏窗口", lambda: None),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("GitHub", lambda: webbrowser.open("https://github.com/wuhulab/Awai")),
+            pystray.MenuItem("B站", lambda: webbrowser.open("https://space.bilibili.com/3493133419546943")),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("退出", lambda: self.after(0, self._quit_from_tray)),
+        )
+        self._tray_icon = pystray.Icon("awai", img, "Awai", menu)
+
+    def _run_tray(self):
+        self._tray_icon.run()
+
+    def _show_from_tray(self):
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+
+    def _quit_from_tray(self):
+        self._lightweight_var.set(False)
+        self._on_close()
 
     # ==================== 工具方法 ====================
 
@@ -672,6 +745,51 @@ class AwaiUI(ctk.CTk):
         self._sys_widgets: Dict[str, Any] = {}
 
         config = self.system_data
+
+        # ---- 外观设置 ----
+        self._build_section_header(container, "外观设置")
+        sf_theme = ctk.CTkFrame(container, corner_radius=6)
+        sf_theme.pack(fill="x", padx=10, pady=3)
+        sf_theme.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(sf_theme, text="界面主题", font=ctk.CTkFont(size=11)).grid(
+            row=0, column=0, padx=6, pady=6, sticky="w"
+        )
+        current_theme = ctk.get_appearance_mode()
+        self._theme_var = ctk.StringVar(value=current_theme)
+        theme_menu = ctk.CTkComboBox(
+            sf_theme,
+            values=["Dark", "Light", "System"],
+            variable=self._theme_var,
+            width=120,
+            font=ctk.CTkFont(size=11),
+            command=self._on_theme_change,
+        )
+        theme_menu.grid(row=0, column=1, padx=2, pady=6, sticky="w")
+
+        ctk.CTkLabel(sf_theme, text="切换后即时生效", font=ctk.CTkFont(size=10), text_color="gray").grid(
+            row=0, column=2, padx=6, pady=6, sticky="w"
+        )
+
+        # ---- 轻量模式（托盘） ----
+        if _HAS_TRAY:
+            sf_tray = ctk.CTkFrame(container, corner_radius=6)
+            sf_tray.pack(fill="x", padx=10, pady=3)
+            sf_tray.grid_columnconfigure(1, weight=1)
+
+            self._lightweight_var = ctk.BooleanVar(value=False)
+            ctk.CTkLabel(sf_tray, text="轻量模式", font=ctk.CTkFont(size=11)).grid(
+                row=0, column=0, padx=6, pady=6, sticky="w"
+            )
+            ctk.CTkSwitch(sf_tray, text="", variable=self._lightweight_var, command=self._on_lightweight_toggle).grid(
+                row=0, column=1, padx=2, pady=6, sticky="w"
+            )
+            ctk.CTkLabel(
+                sf_tray,
+                text="关闭窗口时最小化到系统托盘，API 服务持续运行",
+                font=ctk.CTkFont(size=10),
+                text_color="gray",
+            ).grid(row=0, column=2, padx=6, pady=6, sticky="w")
 
         # ---- 转发设置 ----
         self._build_section_header(container, "转发设置")
@@ -1465,8 +1583,15 @@ class AwaiUI(ctk.CTk):
     # ==================== 关闭 ====================
 
     def _on_close(self):
+        if self._lightweight_var.get() and _HAS_TRAY:
+            self.withdraw()
+            self._log("已最小化到系统托盘，API 服务持续运行中")
+            threading.Thread(target=self._run_tray, daemon=True).start()
+            return
         self._monitor_active = False
         self._stop_server()
+        if hasattr(self, "_tray_icon") and self._tray_icon:
+            self._tray_icon.stop()
         self.destroy()
 
 

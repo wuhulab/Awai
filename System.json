@@ -1,71 +1,83 @@
 {
-    "error_messages": {
-        "429": "429 呀，服务器被小狐狸玩坏了，请稍后重试！",
-        "500": "500 呀，服务器内部出错了，请稍后重试！"
+  "error_messages": {
+    "429": "429 呀，服务器被小狐狸玩坏了，请稍后重试！",
+    "500": "500 呀，服务器内部出错了，请稍后重试！"
+  },
+  "forwarding": {
+    "timeout": {
+      "connect": 10,
+      "request": 120,
+      "read": 60,
+      "description": "超时设置（单位：秒）- connect: 连接超时, request: 请求超时, read: 读取超时"
     },
-    "forwarding": {
-        "timeout": {
-            "connect": 10,
-            "request": 120,
-            "read": 60,
-            "description": "超时设置（单位：秒）- connect: 连接超时, request: 请求超时, read: 读取超时"
-        },
-        "retry": {
-            "max_attempts": 3,
-            "backoff_factor": 2,
-            "retry_on_status": [429, 500, 502, 503, 504],
-            "description": "重试设置 - max_attempts: 最大重试次数, backoff_factor: 退避因子, retry_on_status: 触发重试的状态码"
-        },
-        "proxy": {
-            "enabled": false,
-            "http": "",
-            "https": "",
-            "description": "代理设置 - enabled: 是否启用代理, http/https: 代理地址"
-        },
-        "connection_pool": {
-            "max_keepalive_connections": 20,
-            "max_connections": 100,
-            "keepalive_expiry": 30,
-            "description": "连接池设置 - max_keepalive_connections: 最大保活连接数, max_connections: 最大连接数, keepalive_expiry: 保活过期时间（秒）"
-        },
-        "streaming": {
-            "chunk_size": 1024,
-            "buffer_size": 8192,
-            "description": "流式响应设置 - chunk_size: 数据块大小（字节）, buffer_size: 缓冲区大小（字节）"
-        },
-        "rate_limit": {
-            "enabled": false,
-            "requests_per_second": 10,
-            "burst": 20,
-            "description": "速率限制设置 - enabled: 是否启用, requests_per_second: 每秒请求数, burst: 突发请求数"
-        },
-        "headers": {
-            "default": {
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-            },
-            "custom": {},
-            "description": "请求头设置 - default: 默认请求头, custom: 自定义请求头"
-        },
-        "circuit_breaker": {
-            "enabled": true,
-            "failure_threshold": 5,
-            "recovery_timeout": 60,
-            "description": "熔断器设置 - enabled: 是否启用, failure_threshold: 失败阈值, recovery_timeout: 恢复超时（秒）"
-        }
+    "retry": {
+      "max_attempts": 3,
+      "backoff_factor": 2,
+      "retry_on_status": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ],
+      "description": "重试设置 - max_attempts: 最大重试次数, backoff_factor: 退避因子, retry_on_status: 触发重试的状态码"
     },
-    "logging": {
-        "level": "INFO",
-        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        "file": "autoapi.log",
-        "max_size_mb": 10,
-        "backup_count": 5,
-        "description": "日志设置 - level: 日志级别, format: 日志格式, file: 日志文件名, max_size_mb: 最大文件大小（MB）, backup_count: 备份文件数量"
+    "proxy": {
+      "enabled": false,
+      "http": "",
+      "https": "",
+      "description": "代理设置 - enabled: 是否启用代理, http/https: 代理地址"
     },
-    "cache": {
-        "enabled": true,
-        "ttl": 60,
-        "max_size": 1000,
-        "description": "缓存设置 - enabled: 是否启用, ttl: 缓存时间（秒）, max_size: 最大缓存条目数"
+    "connection_pool": {
+      "max_keepalive_connections": 20,
+      "max_connections": 100,
+      "keepalive_expiry": 30,
+      "description": "连接池设置 - max_keepalive_connections: 最大保活连接数, max_connections: 最大连接数, keepalive_expiry: 保活过期时间（秒）"
+    },
+    "streaming": {
+      "chunk_size": 1024,
+      "buffer_size": 8192,
+      "description": "流式响应设置 - chunk_size: 数据块大小（字节）, buffer_size: 缓冲区大小（字节）"
+    },
+    "rate_limit": {
+      "enabled": false,
+      "requests_per_second": 10,
+      "burst": 20,
+      "description": "速率限制设置 - enabled: 是否启用, requests_per_second: 每秒请求数, burst: 突发请求数"
+    },
+    "headers": {
+      "default": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "custom": {},
+      "description": "请求头设置 - default: 默认请求头, custom: 自定义请求头"
+    },
+    "circuit_breaker": {
+      "enabled": true,
+      "failure_threshold": 5,
+      "recovery_timeout": 60,
+      "description": "熔断器设置 - enabled: 是否启用, failure_threshold: 失败阈值, recovery_timeout: 恢复超时（秒）"
     }
+  },
+  "logging": {
+    "level": "INFO",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    "file": "autoapi.log",
+    "max_size_mb": 10,
+    "backup_count": 5,
+    "description": "日志设置 - level: 日志级别, format: 日志格式, file: 日志文件名, max_size_mb: 最大文件大小（MB）, backup_count: 备份文件数量"
+  },
+  "cache": {
+    "enabled": true,
+    "ttl": 60,
+    "max_size": 1000,
+    "description": "缓存设置 - enabled: 是否启用, ttl: 缓存时间（秒）, max_size: 最大缓存条目数"
+  },
+  "tray": {
+    "lightweight": true
+  },
+  "appearance": {
+    "mode": "light"
+  }
 }
