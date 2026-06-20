@@ -120,9 +120,10 @@ jobs:
           $wixVer = $parts -join '.'
           Write-Host "WiX version: '$wixVer'  Arch: ${{ matrix.arch }}"
           Write-Host "msi-build files:"; Get-ChildItem msi-build | Select-Object Length, Name
-          Write-Host "--- candle ---"
+          $srcDir = (Resolve-Path "msi-build").Path
+          Write-Host "--- candle --- SourceDir: $srcDir"
           candle -arch ${{ matrix.arch }} ".github\wix\installer.wxs" `
-            -dAppVersion="$wixVer" -dArch="${{ matrix.arch }}" -dSourceDir="msi-build" `
+            -dAppVersion="$wixVer" -dArch="${{ matrix.arch }}" -dSourceDir="$srcDir" `
             -ext WixUtilExtension -out "installer.wixobj"
           if (-not $?) { throw "candle.exe failed" }
           Write-Host "--- light ---"
