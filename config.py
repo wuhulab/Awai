@@ -1,6 +1,6 @@
 """
-AutoAPI - 多用户多AI-API管理工具
-核心配置模块
+AutoAPI - 基础配置文件
+定义项目路径、默认配置、日志配置、Pydantic数据模型等基础设置
 """
 
 import os
@@ -27,41 +27,26 @@ DEFAULT_CONFIG = {
     "port": 8001,
     "log_level": "INFO",
     "max_request_timeout": 120,
-    "enable_metrics": True
+    "enable_metrics": True,
 }
 
 # 日志配置
 LOG_CONFIG = {
     "version": 1,
     "disable_existing_loggers": False,
-    "formatters": {
-        "default": {
-            "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        }
-    },
+    "formatters": {"default": {"format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"}},
     "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-            "formatter": "default",
-            "stream": "ext://sys.stdout"
-        },
-        "file": {
-            "class": "logging.FileHandler",
-            "formatter": "default",
-            "filename": "autoapi.log",
-            "mode": "a"
-        }
+        "console": {"class": "logging.StreamHandler", "formatter": "default", "stream": "ext://sys.stdout"},
+        "file": {"class": "logging.FileHandler", "formatter": "default", "filename": "autoapi.log", "mode": "a"},
     },
-    "root": {
-        "level": "INFO",
-        "handlers": ["console", "file"]
-    }
+    "root": {"level": "INFO", "handlers": ["console", "file"]},
 }
 
 
 # 数据模型定义
 class HealthResponse(BaseModel):
     """健康检查响应"""
+
     status: str
     timestamp: datetime
     version: str
@@ -72,7 +57,7 @@ class HealthResponse(BaseModel):
 class Storage:
     """简化的存储类"""
 
-    def __init__(self, base_dir: Path):
+    def __init__(self, base_dir: Path) -> None:
         self.base_dir = base_dir
         logger = logging.getLogger(__name__)
         logger.info("Storage 初始化完成")

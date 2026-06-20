@@ -1,7 +1,7 @@
 """
-AutoAPI - 规则引擎模块
-根据规则动态选择上游API和密钥（密钥直接配置在rules.json中）
-支持 key 轮询和 429 冷却机制
+AutoAPI - 规则引擎
+根据 rules.json 配置,动态匹配模型名称到上游API和密钥。
+支持模型映射、自动规则选择(优先级/负载均衡/随机)、key轮询和冷却机制。
 """
 
 import json
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class RuleEngine:
     """规则引擎，密钥直接从rules.json获取"""
 
-    def __init__(self, base_dir: Path, cache_ttl: int = 60):
+    def __init__(self, base_dir: Path, cache_ttl: int = 60) -> None:
         self.base_dir = base_dir
         self.rules_file = base_dir / "rules.json"
         self.logger = logging.getLogger(__name__)
@@ -37,21 +37,21 @@ class RuleEngine:
 
         try:
             if self.rules_file.exists():
-                with open(self.rules_file, 'r', encoding='utf-8') as f:
+                with open(self.rules_file, "r", encoding="utf-8") as f:
                     rules = json.load(f)
                     with self._lock:
                         self._cache = rules
                         self._cache_time = time.time()
-                    
+
                     self.cooldown_manager.configure(rules.get("settings", []))
-                    
+
                     return rules
             return {"model": [], "auto": [], "settings": []}
         except Exception as e:
             self.logger.error(f"加载规则失败: {e}")
             return {"model": [], "auto": [], "settings": []}
 
-    def invalidate_cache(self):
+    def invalidate_cache(self) -> None:
         """手动清除缓存"""
         with self._lock:
             self._cache = None
@@ -141,11 +141,7 @@ class RuleEngine:
         quotation = auto_rule.get("actions", {}).get("quotation", {})
 
         # 按 quotation 的值（优先级）从高到低排序
-        prioritized_models = sorted(
-            available_models,
-            key=lambda x: quotation.get(x, 0),
-            reverse=True
-        )
+        prioritized_models = sorted(available_models, key=lambda x: quotation.get(x, 0), reverse=True)
 
         if prioritized_models:
             selected = prioritized_models[0]
@@ -254,8 +250,7 @@ class RuleEngine:
 
             # 选择可用的 key（支持轮询和冷却）
             selected_key = self.cooldown_manager.get_available_key(
-                api_keys if isinstance(api_keys, list) else [api_keys],
-                actual_model
+                api_keys if isinstance(api_keys, list) else [api_keys], actual_model
             )
 
             if not selected_key:
@@ -266,7 +261,7 @@ class RuleEngine:
             key_info = {
                 "provider": "deepseek",  # 从规则中可扩展
                 "api_key": selected_key,
-                "model": actual_model  # 添加模型信息，用于冷却管理
+                "model": actual_model,  # 添加模型信息，用于冷却管理
             }
 
             self.logger.info(f"模型 {model_name} -> {actual_model}, URL: {url}, Key: {selected_key[:10]}...")
@@ -293,21 +288,18 @@ class RuleEngine:
 
                         # 选择可用的 key
                         selected_key = self.cooldown_manager.get_available_key(
-                            api_keys if isinstance(api_keys, list) else [api_keys],
-                            actual_model
+                            api_keys if isinstance(api_keys, list) else [api_keys], actual_model
                         )
 
                         if not selected_key:
                             self.logger.error(f"所有 key 都在冷却中，无法处理请求: model={actual_model}")
                             return None, None, None
 
-                        key_info = {
-                            "provider": "deepseek",
-                            "api_key": selected_key,
-                            "model": actual_model
-                        }
+                        key_info = {"provider": "deepseek", "api_key": selected_key, "model": actual_model}
 
-                        self.logger.info(f"Auto选择模型 {auto_model} -> {actual_model}, URL: {url}, Key: {selected_key[:10]}...")
+                        self.logger.info(
+                            f"Auto选择模型 {auto_model} -> {actual_model}, URL: {url}, Key: {selected_key[:10]}..."
+                        )
                         return actual_model, url, key_info
 
         # 3. 如果都没有匹配，尝试自动选择
@@ -324,21 +316,18 @@ class RuleEngine:
 
                 # 选择可用的 key
                 selected_key = self.cooldown_manager.get_available_key(
-                    api_keys if isinstance(api_keys, list) else [api_keys],
-                    actual_model
+                    api_keys if isinstance(api_keys, list) else [api_keys], actual_model
                 )
 
                 if not selected_key:
                     self.logger.error(f"所有 key 都在冷却中，无法处理请求: model={actual_model}")
                     return None, None, None
 
-                key_info = {
-                    "provider": "deepseek",
-                    "api_key": selected_key,
-                    "model": actual_model
-                }
+                key_info = {"provider": "deepseek", "api_key": selected_key, "model": actual_model}
 
-                self.logger.info(f"自动选择模型 {auto_model} -> {actual_model}, URL: {url}, Key: {selected_key[:10]}...")
+                self.logger.info(
+                    f"自动选择模型 {auto_model} -> {actual_model}, URL: {url}, Key: {selected_key[:10]}..."
+                )
                 return actual_model, url, key_info
 
         self.logger.warning(f"无法解析模型: {model_name}")

@@ -1,12 +1,13 @@
 """
-AutoAPI - API转发模块
-负责将请求转发到上游API
+AutoAPI - API请求转发模块
+将客户端的API请求转发到上游AI服务商(OpenAI、Anthropic、DeepSeek等)。
+包含熔断器(CircuitBreaker)和重试(RetryHandler)机制,支持流式响应转发。
 """
 
 import httpx
 import logging
 import asyncio
-from typing import Dict, Optional, Any
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 from pathlib import Path
 
@@ -19,13 +20,9 @@ class CircuitBreaker:
     防止持续请求失败的上游服务
     """
 
-    def __init__(self, failure_threshold: int = 5, recovery_timeout: int = 60):
+    def __init__(self, failure_threshold: int = 5, recovery_timeout: int = 60) -> None:
         """
         初始化熔断器
-        
-        Args:
-            failure_threshold: 失败阈值
-            recovery_timeout: 恢复超时时间（秒）
         """
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
@@ -34,18 +31,18 @@ class CircuitBreaker:
         self.state = "closed"  # closed, open, half_open
         self._lock = asyncio.Lock()
 
-    async def record_success(self):
+    async def record_success(self) -> None:
         """记录成功请求"""
         async with self._lock:
             self.failure_count = 0
             self.state = "closed"
 
-    async def record_failure(self):
+    async def record_failure(self) -> None:
         """记录失败请求"""
         async with self._lock:
             self.failure_count += 1
             self.last_failure_time = datetime.now().timestamp()
-            
+
             if self.failure_count >= self.failure_threshold:
                 self.state = "open"
                 logger.warning(f"熔断器打开，失败次数: {self.failure_count}")
@@ -53,14 +50,14 @@ class CircuitBreaker:
     async def is_available(self) -> bool:
         """
         检查服务是否可用
-        
+
         Returns:
             是否可用
         """
         async with self._lock:
             if self.state == "closed":
                 return True
-            
+
             if self.state == "open":
                 # 检查是否可以进入半开状态
                 if self.last_failure_time:
@@ -70,7 +67,7 @@ class CircuitBreaker:
                         logger.info("熔断器进入半开状态")
                         return True
                 return False
-            
+
             # half_open 状态允许一次请求
             return True
 
@@ -81,10 +78,12 @@ class RetryHandler:
     处理请求重试逻辑
     """
 
-    def __init__(self, max_attempts: int = 3, backoff_factor: int = 2, retry_on_status: list = None):
+    def __init__(
+        self, max_attempts: int = 3, backoff_factor: int = 2, retry_on_status: Optional[List[int]] = None
+    ) -> None:
         """
         初始化重试处理器
-        
+
         Args:
             max_attempts: 最大重试次数
             backoff_factor: 退避因子
@@ -97,11 +96,11 @@ class RetryHandler:
     def should_retry(self, status_code: int, attempt: int) -> bool:
         """
         判断是否应该重试
-        
+
         Args:
             status_code: HTTP 状态码
             attempt: 当前尝试次数
-            
+
         Returns:
             是否应该重试
         """
@@ -112,14 +111,14 @@ class RetryHandler:
     def get_delay(self, attempt: int) -> float:
         """
         获取重试延迟时间
-        
+
         Args:
             attempt: 当前尝试次数
-            
+
         Returns:
             延迟时间（秒）
         """
-        return self.backoff_factor ** attempt
+        return self.backoff_factor**attempt
 
 
 class APIForwarder:
@@ -138,10 +137,10 @@ class APIForwarder:
         "zhipu": "https://open.bigmodel.cn/api/paas/v4",
     }
 
-    def __init__(self, timeout: int = 120, system_config=None):
+    def __init__(self, timeout: int = 120, system_config: Optional[Any] = None) -> None:
         """
         初始化转发器
-        
+
         Args:
             timeout: 默认超时时间
             system_config: 系统配置实例
@@ -150,14 +149,14 @@ class APIForwarder:
         self.logger = logging.getLogger(__name__)
         self._client: Optional[httpx.AsyncClient] = None
         self.system_config = system_config
-        
+
         # 从系统配置加载设置
         if system_config:
             self._load_config()
         else:
             self._init_defaults()
 
-    def _init_defaults(self):
+    def _init_defaults(self) -> None:
         """初始化默认配置"""
         self.connect_timeout = 10
         self.read_timeout = 60
@@ -170,79 +169,75 @@ class APIForwarder:
         self.retry_handler = RetryHandler()
         self.circuit_breaker_enabled = True
         self.circuit_breaker = CircuitBreaker()
-        self.default_headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        }
+        self.default_headers = {"Content-Type": "application/json", "Accept": "application/json"}
         self.custom_headers = {}
 
-    def _load_config(self):
+    def _load_config(self) -> None:
         """从系统配置加载设置"""
         # 超时配置
         timeout_config = self.system_config.get_timeout_config()
         self.connect_timeout = timeout_config.get("connect", 10)
         self.read_timeout = timeout_config.get("read", 60)
-        
+
         # 连接池配置
         pool_config = self.system_config.get_connection_pool_config()
         self.max_keepalive_connections = pool_config.get("max_keepalive_connections", 20)
         self.max_connections = pool_config.get("max_connections", 100)
         self.keepalive_expiry = pool_config.get("keepalive_expiry", 30)
-        
+
         # 代理配置
         proxy_config = self.system_config.get_proxy_config()
         self.proxy_enabled = proxy_config.get("enabled", False)
         self.proxy_http = proxy_config.get("http") if self.proxy_enabled else None
         self.proxy_https = proxy_config.get("https") if self.proxy_enabled else None
-        
+
         # 重试配置
         retry_config = self.system_config.get_retry_config()
         self.retry_handler = RetryHandler(
             max_attempts=retry_config.get("max_attempts", 3),
             backoff_factor=retry_config.get("backoff_factor", 2),
-            retry_on_status=retry_config.get("retry_on_status", [429, 500, 502, 503, 504])
+            retry_on_status=retry_config.get("retry_on_status", [429, 500, 502, 503, 504]),
         )
-        
+
         # 熔断器配置
         cb_config = self.system_config.get_circuit_breaker_config()
         self.circuit_breaker_enabled = cb_config.get("enabled", True)
         self.circuit_breaker = CircuitBreaker(
             failure_threshold=cb_config.get("failure_threshold", 5),
-            recovery_timeout=cb_config.get("recovery_timeout", 60)
+            recovery_timeout=cb_config.get("recovery_timeout", 60),
         )
-        
+
         # 请求头配置
         headers_config = self.system_config.get_headers_config()
-        self.default_headers = headers_config.get("default", {
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        })
+        self.default_headers = headers_config.get(
+            "default", {"Content-Type": "application/json", "Accept": "application/json"}
+        )
         self.custom_headers = headers_config.get("custom", {})
-        
+
         self.logger.info("转发器配置加载完成")
 
     def _get_proxies(self) -> Optional[Dict[str, str]]:
         """
         获取代理配置
-        
+
         Returns:
             代理配置字典或 None
         """
         if not self.proxy_enabled:
             return None
-        
+
         proxies = {}
         if self.proxy_http:
             proxies["http://"] = self.proxy_http
         if self.proxy_https:
             proxies["https://"] = self.proxy_https
-        
+
         return proxies if proxies else None
 
     def _get_client(self) -> httpx.AsyncClient:
         """
         获取 HTTP 客户端
-        
+
         Returns:
             httpx.AsyncClient 实例
         """
@@ -252,28 +247,25 @@ class APIForwarder:
                 connect=self.connect_timeout,
                 read=self.read_timeout,
                 write=self.connect_timeout,
-                pool=self.connect_timeout
+                pool=self.connect_timeout,
             )
-            
+
             # 构建连接池限制
             limits = httpx.Limits(
                 max_keepalive_connections=self.max_keepalive_connections,
                 max_connections=self.max_connections,
-                keepalive_expiry=self.keepalive_expiry
+                keepalive_expiry=self.keepalive_expiry,
             )
-            
+
             # 构建默认请求头
             headers = {**self.default_headers, **self.custom_headers}
-            
+
             self._client = httpx.AsyncClient(
-                timeout=timeout,
-                limits=limits,
-                proxies=self._get_proxies(),
-                headers=headers
+                timeout=timeout, limits=limits, proxies=self._get_proxies(), headers=headers
             )
-            
+
             self.logger.info(f"HTTP客户端已初始化: 连接池={self.max_connections}, 超时={self.timeout}s")
-        
+
         return self._client
 
     async def close(self):
@@ -283,14 +275,14 @@ class APIForwarder:
             self._client = None
             self.logger.info("HTTP客户端已关闭")
 
-    def get_endpoint(self, provider: str, **kwargs) -> str:
+    def get_endpoint(self, provider: str, **kwargs: Any) -> str:
         """
         获取上游 API 端点
-        
+
         Args:
             provider: 提供商名称
             **kwargs: 额外参数
-            
+
         Returns:
             API 端点 URL
         """
@@ -305,14 +297,16 @@ class APIForwarder:
 
         return endpoint.rstrip("/")
 
-    def _merge_headers(self, base_headers: Dict[str, str], extra_headers: Dict[str, str] = None) -> Dict[str, str]:
+    def _merge_headers(
+        self, base_headers: Dict[str, str], extra_headers: Optional[Dict[str, str]] = None
+    ) -> Dict[str, str]:
         """
         合并请求头
-        
+
         Args:
             base_headers: 基础请求头
             extra_headers: 额外请求头
-            
+
         Returns:
             合并后的请求头
         """
@@ -326,17 +320,17 @@ class APIForwarder:
         provider: str,
         api_key: str,
         model: str,
-        messages: list,
+        messages: List[Dict[str, Any]],
         stream: bool = False,
         temperature: Optional[float] = 0.7,
         max_tokens: Optional[int] = 2048,
         timeout: Optional[int] = None,
         upstream_url: Optional[str] = None,
-        **kwargs
+        **kwargs: Any,
     ) -> Dict[str, Any]:
         """
         转发聊天补全请求到上游 API
-        
+
         Args:
             provider: API 提供商
             api_key: API 密钥
@@ -348,7 +342,7 @@ class APIForwarder:
             timeout: 超时时间
             upstream_url: 可选，上游 API 完整 URL
             **kwargs: 其他参数
-            
+
         Returns:
             API 响应数据
         """
@@ -372,29 +366,31 @@ class APIForwarder:
                     max_tokens=max_tokens,
                     timeout=timeout,
                     upstream_url=upstream_url,
-                    **kwargs
+                    **kwargs,
                 )
-                
+
                 # 记录成功
                 if self.circuit_breaker_enabled:
                     await self.circuit_breaker.record_success()
-                
+
                 return result
 
             except httpx.HTTPStatusError as e:
                 status_code = e.response.status_code
-                
+
                 # 检查是否需要重试
                 if self.retry_handler.should_retry(status_code, attempt):
                     delay = self.retry_handler.get_delay(attempt)
-                    self.logger.warning(f"请求失败 (状态码: {status_code})，{delay}s 后重试 (尝试 {attempt}/{self.retry_handler.max_attempts})")
+                    self.logger.warning(
+                        f"请求失败 (状态码: {status_code})，{delay}s 后重试 (尝试 {attempt}/{self.retry_handler.max_attempts})"
+                    )
                     await asyncio.sleep(delay)
                     continue
-                
+
                 # 记录失败
                 if self.circuit_breaker_enabled:
                     await self.circuit_breaker.record_failure()
-                
+
                 raise
 
             except Exception as e:
@@ -408,13 +404,13 @@ class APIForwarder:
         provider: str,
         api_key: str,
         model: str,
-        messages: list,
+        messages: List[Dict[str, Any]],
         stream: bool = False,
         temperature: Optional[float] = 0.7,
         max_tokens: Optional[int] = 2048,
         timeout: Optional[int] = None,
         upstream_url: Optional[str] = None,
-        **kwargs
+        **kwargs: Any,
     ) -> Dict[str, Any]:
         """
         执行实际的转发请求
@@ -424,32 +420,26 @@ class APIForwarder:
         # 构建URL和请求头
         if upstream_url:
             url = f"{upstream_url.rstrip('/')}/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
             payload = {
                 "model": model,
                 "messages": messages,
                 "stream": stream,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
-                **kwargs
+                **kwargs,
             }
         elif provider.lower() == "openai":
             endpoint = self.get_endpoint(provider)
             url = f"{endpoint}/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
             payload = {
                 "model": model,
                 "messages": messages,
                 "stream": stream,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
-                **kwargs
+                **kwargs,
             }
 
         elif provider.lower() == "anthropic":
@@ -459,46 +449,40 @@ class APIForwarder:
                 "x-api-key": api_key,
                 "Content-Type": "application/json",
                 "anthropic-version": "2023-06-01",
-                "anthropic-dangerous-direct-browser-access": "true"
+                "anthropic-dangerous-direct-browser-access": "true",
             }
             payload = {
                 "model": model,
                 "max_tokens": max_tokens or 1024,
                 "messages": messages,
                 "stream": stream,
-                **kwargs
+                **kwargs,
             }
 
         elif provider.lower() == "deepseek":
             endpoint = self.get_endpoint(provider)
             url = f"{endpoint}/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
             payload = {
                 "model": model,
                 "messages": messages,
                 "stream": stream,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
-                **kwargs
+                **kwargs,
             }
 
         elif provider.lower() in ["groq", "qwen", "mistral", "cohere"]:
             endpoint = self.get_endpoint(provider)
             url = f"{endpoint}/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
             payload = {
                 "model": model,
                 "messages": messages,
                 "stream": stream,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
-                **kwargs
+                **kwargs,
             }
 
         else:
@@ -508,40 +492,39 @@ class APIForwarder:
         try:
             client = self._get_client()
             if stream:
+
                 async def stream_generator():
                     try:
                         self.logger.info(f"转发请求到 {url}")
-                        async with client.stream('POST', url, json=payload, headers=headers, timeout=timeout) as response:
+                        async with client.stream(
+                            "POST", url, json=payload, headers=headers, timeout=timeout
+                        ) as response:
                             if response.status_code >= 400:
                                 error_body = await response.aread()
-                                error_text = error_body.decode('utf-8') if error_body else response.text
+                                error_text = error_body.decode("utf-8") if error_body else response.text
                                 self.logger.error(f"上游API错误 {response.status_code}: {error_text[:200]}")
                                 yield {
                                     "stream": True,
                                     "chunk": f'{{"error": "上游API错误 {response.status_code}: {error_text[:100]}..."}}',
-                                    "content_type": "application/json"
+                                    "content_type": "application/json",
                                 }
                                 return
                             content_type = response.headers.get("content-type", "text/plain")
                             async for chunk in response.aiter_text():
-                                yield {
-                                    "stream": True,
-                                    "chunk": chunk,
-                                    "content_type": content_type
-                                }
+                                yield {"stream": True, "chunk": chunk, "content_type": content_type}
                     except httpx.HTTPStatusError as e:
                         self.logger.error(f"HTTP错误: {e.response.status_code} - {str(e)}")
                         yield {
                             "stream": True,
                             "chunk": f'{{"error": "上游API错误: {e.response.status_code} {e.response.reason_phrase}"}}',
-                            "content_type": "application/json"
+                            "content_type": "application/json",
                         }
                     except Exception as e:
                         self.logger.error(f"转发请求异常: {str(e)}")
                         yield {
                             "stream": True,
                             "chunk": f'{{"error": "转发失败: {str(e)[:50]}"}}',
-                            "content_type": "application/json"
+                            "content_type": "application/json",
                         }
 
                 return stream_generator()
@@ -552,7 +535,7 @@ class APIForwarder:
                 if response.status_code >= 400:
                     error_text = response.text[:500] if response.text else ""
                     self.logger.error(f"上游API错误 {response.status_code}: {error_text}")
-                    
+
                     # 检测 429 错误（速率限制）
                     if response.status_code == 429:
                         self.logger.warning(f"检测到 429 速率限制错误")
@@ -560,15 +543,15 @@ class APIForwarder:
                             "error": {
                                 "message": f"上游API速率限制: {error_text[:100]}",
                                 "type": "rate_limit_error",
-                                "code": 429
+                                "code": 429,
                             }
                         }
-                    
+
                     return {
                         "error": {
                             "message": f"上游API错误 {response.status_code}: {error_text[:100]}",
                             "type": "upstream_error",
-                            "code": response.status_code
+                            "code": response.status_code,
                         }
                     }
 
@@ -601,7 +584,7 @@ class APIForwarder:
         max_tokens: Optional[int] = 2048,
         timeout: Optional[int] = None,
         upstream_url: Optional[str] = None,
-        **kwargs
+        **kwargs: Any,
     ) -> Dict[str, Any]:
         """
         转发文本补全请求到上游 API
@@ -626,29 +609,31 @@ class APIForwarder:
                     max_tokens=max_tokens,
                     timeout=timeout,
                     upstream_url=upstream_url,
-                    **kwargs
+                    **kwargs,
                 )
-                
+
                 # 记录成功
                 if self.circuit_breaker_enabled:
                     await self.circuit_breaker.record_success()
-                
+
                 return result
 
             except httpx.HTTPStatusError as e:
                 status_code = e.response.status_code
-                
+
                 # 检查是否需要重试
                 if self.retry_handler.should_retry(status_code, attempt):
                     delay = self.retry_handler.get_delay(attempt)
-                    self.logger.warning(f"请求失败 (状态码: {status_code})，{delay}s 后重试 (尝试 {attempt}/{self.retry_handler.max_attempts})")
+                    self.logger.warning(
+                        f"请求失败 (状态码: {status_code})，{delay}s 后重试 (尝试 {attempt}/{self.retry_handler.max_attempts})"
+                    )
                     await asyncio.sleep(delay)
                     continue
-                
+
                 # 记录失败
                 if self.circuit_breaker_enabled:
                     await self.circuit_breaker.record_failure()
-                
+
                 raise
 
             except Exception as e:
@@ -668,7 +653,7 @@ class APIForwarder:
         max_tokens: Optional[int] = 2048,
         timeout: Optional[int] = None,
         upstream_url: Optional[str] = None,
-        **kwargs
+        **kwargs: Any,
     ) -> Dict[str, Any]:
         """
         执行实际的文本补全转发请求
@@ -677,32 +662,26 @@ class APIForwarder:
 
         if upstream_url:
             url = f"{upstream_url.rstrip('/')}/completions"
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
             payload = {
                 "model": model,
                 "prompt": prompt,
                 "stream": stream,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
-                **kwargs
+                **kwargs,
             }
         elif provider.lower() == "openai":
             endpoint = self.get_endpoint(provider)
             url = f"{endpoint}/completions"
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
             payload = {
                 "model": model,
                 "prompt": prompt,
                 "stream": stream,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
-                **kwargs
+                **kwargs,
             }
 
         elif provider.lower() == "anthropic":
@@ -711,40 +690,36 @@ class APIForwarder:
         else:
             endpoint = self.get_endpoint(provider)
             url = f"{endpoint}/completions"
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
             payload = {
                 "model": model,
                 "prompt": prompt,
                 "stream": stream,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
-                **kwargs
+                **kwargs,
             }
 
         try:
             client = self._get_client()
             if stream:
+
                 async def stream_generator():
                     try:
                         self.logger.info(f"转发补全请求到 {url}")
-                        async with client.stream('POST', url, json=payload, headers=headers, timeout=timeout) as response:
+                        async with client.stream(
+                            "POST", url, json=payload, headers=headers, timeout=timeout
+                        ) as response:
                             response.raise_for_status()
                             content_type = response.headers.get("content-type", "text/plain")
                             async for chunk in response.aiter_text():
-                                yield {
-                                    "stream": True,
-                                    "chunk": chunk,
-                                    "content_type": content_type
-                                }
+                                yield {"stream": True, "chunk": chunk, "content_type": content_type}
                     except Exception as e:
                         self.logger.error(f"转发补全请求异常: {str(e)}")
                         yield {
                             "stream": True,
                             "chunk": f'{{"error": "转发失败: {str(e)[:50]}"}}',
-                            "content_type": "application/json"
+                            "content_type": "application/json",
                         }
 
                 return stream_generator()

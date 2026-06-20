@@ -1,6 +1,7 @@
 """
-AutoAPI - 主应用模块
-FastAPI应用入口，提供API转发功能（简化版，密钥直接配置在rules.json中）
+AutoAPI - FastAPI应用入口
+提供 REST API 端点: 健康检查、系统配置管理、规则管理、
+冷却状态管理,以及 OpenAI 兼容的聊天/文本补全代理接口。
 """
 
 import inspect
@@ -23,14 +24,11 @@ from forwarder import APIForwarder
 from system_config import SystemConfig
 
 # 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def init_default_rules(base_dir: Path):
+def init_default_rules(base_dir: Path) -> None:
     """初始化默认规则"""
     logger.info("检查默认规则...")
 
@@ -39,7 +37,7 @@ def init_default_rules(base_dir: Path):
     # 如果规则文件已存在，跳过
     if rules_file.exists() and rules_file.stat().st_size > 0:
         try:
-            with open(rules_file, 'r', encoding='utf-8') as f:
+            with open(rules_file, "r", encoding="utf-8") as f:
                 existing_rules = json.load(f)
             if existing_rules.get("model") or existing_rules.get("auto"):
                 logger.info(f"规则文件已存在，跳过初始化")
@@ -58,43 +56,31 @@ def init_default_rules(base_dir: Path):
                 "actions": {
                     "url": "https://api.deepseek.com/v1",
                     "key": "your-deepseek-api-key-here",
-                    "mappings": {
-                        "deepseek-V3": "deepseek-chat",
-                        "deepseek-V3.2": "deepseek-chat-20250611"
-                    }
+                    "mappings": {"deepseek-V3": "deepseek-chat", "deepseek-V3.2": "deepseek-chat-20250611"},
                 },
-                "exposure": "true"
+                "exposure": "true",
             }
         ],
         "auto": [
             {
                 "name": "DeepSeek-auto",
-                "actions": {
-                    "quotation": {
-                        "deepseek-V3": 1,
-                        "deepseek-V3.2": 2
-                    },
-                    "rules": "priority"
-                },
-                "enable": "true"
+                "actions": {"quotation": {"deepseek-V3": 1, "deepseek-V3.2": 2}, "rules": "priority"},
+                "enable": "true",
             }
-        ]
+        ],
     }
 
     try:
-        with open(rules_file, 'w', encoding='utf-8') as f:
+        with open(rules_file, "w", encoding="utf-8") as f:
             json.dump(default_rules, f, ensure_ascii=False, indent=2)
         logger.info(f"默认规则已创建: {rules_file}")
         logger.info("请编辑 rules.json 配置文件，填入你的 API 密钥")
     except Exception as e:
         logger.error(f"创建默认规则失败: {e}")
 
+
 # 初始化FastAPI应用
-app = FastAPI(
-    title="AutoAPI",
-    description="AI-API转发工具 - 支持模型映射和自动路由（简化版）",
-    version="2.0.0"
-)
+app = FastAPI(title="AutoAPI", description="AI-API转发工具 - 支持模型映射和自动路由（简化版）", version="2.0.0")
 
 # 配置CORS
 app.add_middleware(
@@ -115,20 +101,17 @@ system_config = SystemConfig(BASE_DIR)
 rule_engine = RuleEngine(BASE_DIR)
 
 # 初始化转发器（传入系统配置）
-forwarder = APIForwarder(
-    timeout=system_config.get_timeout_config().get("request", 120),
-    system_config=system_config
-)
+forwarder = APIForwarder(timeout=system_config.get_timeout_config().get("request", 120), system_config=system_config)
 
 # 初始化默认规则
 init_default_rules(BASE_DIR)
 
 
 @app.on_event("startup")
-async def startup_event():
+async def startup_event() -> None:
     """应用启动事件"""
     logger.info("AutoAPI 启动，HTTP客户端已初始化")
-    
+
     # 应用日志配置
     log_config = system_config.get_logging_config()
     log_level = log_config.get("level", "INFO")
@@ -137,10 +120,11 @@ async def startup_event():
 
 
 @app.on_event("shutdown")
-async def shutdown_event():
+async def shutdown_event() -> None:
     """应用关闭事件"""
     logger.info("关闭HTTP客户端...")
     await forwarder.close()
+
 
 # 应用启动时间
 start_time = time.time()
@@ -148,35 +132,27 @@ start_time = time.time()
 
 # ==================== 根路由 ====================
 
+
 @app.get("/", response_model=Dict)
 async def root():
     """根路径"""
-    return {
-        "name": "AutoAPI",
-        "version": "2.0.0",
-        "description": "AI-API转发工具（简化版）",
-        "docs": "/docs"
-    }
+    return {"name": "AutoAPI", "version": "2.0.0", "description": "AI-API转发工具（简化版）", "docs": "/docs"}
 
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """健康检查"""
-    return HealthResponse(
-        status="healthy",
-        timestamp=datetime.now(),
-        version="2.0.0",
-        uptime=time.time() - start_time
-    )
+    return HealthResponse(status="healthy", timestamp=datetime.now(), version="2.0.0", uptime=time.time() - start_time)
 
 
 # ==================== 系统配置路由 ====================
+
 
 @app.get("/api/system/config", tags=["系统配置"])
 async def get_system_config():
     """
     获取系统配置
-    
+
     Returns:
         系统配置信息
     """
@@ -187,31 +163,27 @@ async def get_system_config():
 async def reload_system_config():
     """
     重新加载系统配置
-    
+
     Returns:
         重新加载结果
     """
     config = system_config.reload_config()
-    
+
     # 重新初始化转发器
     global forwarder
     await forwarder.close()
     forwarder = APIForwarder(
-        timeout=system_config.get_timeout_config().get("request", 120),
-        system_config=system_config
+        timeout=system_config.get_timeout_config().get("request", 120), system_config=system_config
     )
-    
-    return {
-        "message": "系统配置已重新加载",
-        "config_keys": list(config.keys())
-    }
+
+    return {"message": "系统配置已重新加载", "config_keys": list(config.keys())}
 
 
 @app.get("/api/system/forwarding", tags=["系统配置"])
 async def get_forwarding_config():
     """
     获取转发配置
-    
+
     Returns:
         转发配置信息
     """
@@ -219,6 +191,7 @@ async def get_forwarding_config():
 
 
 # ==================== 规则管理路由 ====================
+
 
 @app.get("/api/rules", tags=["规则管理"])
 async def get_rules():
@@ -245,7 +218,7 @@ async def reload_rules():
     return {
         "message": "规则已重新加载",
         "model_count": len(rules.get("model", [])),
-        "auto_count": len(rules.get("auto", []))
+        "auto_count": len(rules.get("auto", [])),
     }
 
 
@@ -258,10 +231,7 @@ async def get_cooldown_status():
         冷却状态信息
     """
     status = rule_engine.cooldown_manager.get_cooldown_status()
-    return {
-        "cooldown_status": status,
-        "total_keys_in_cooldown": len(status)
-    }
+    return {"cooldown_status": status, "total_keys_in_cooldown": len(status)}
 
 
 @app.post("/api/cooldown/clear", tags=["冷却管理"])
@@ -277,14 +247,11 @@ async def clear_cooldown(api_key: Optional[str] = None, model: Optional[str] = N
         操作结果
     """
     rule_engine.cooldown_manager.clear_cooldown(api_key, model)
-    return {
-        "message": "冷却状态已清除",
-        "api_key": api_key,
-        "model": model
-    }
+    return {"message": "冷却状态已清除", "api_key": api_key, "model": model}
 
 
 # ==================== 代理转发路由 ====================
+
 
 @app.get("/v1/models", tags=["API代理"])
 async def list_models():
@@ -306,40 +273,38 @@ async def list_models():
     for rule in model_rules:
         mappings = rule.get("actions", {}).get("mappings", {})
         for request_model, actual_model in mappings.items():
-            models.append({
-                "id": request_model,
-                "object": "model",
-                "created": int(datetime.now().timestamp()),
-                "owned_by": rule.get("name", "unknown"),
-                "permission": [],
-                "root": actual_model,
-                "parent": None
-            })
+            models.append(
+                {
+                    "id": request_model,
+                    "object": "model",
+                    "created": int(datetime.now().timestamp()),
+                    "owned_by": rule.get("name", "unknown"),
+                    "permission": [],
+                    "root": actual_model,
+                    "parent": None,
+                }
+            )
 
     # 2. 添加 auto 规则作为虚拟模型
     for auto_rule in auto_rules:
         if auto_rule.get("enable", True):
-            models.append({
-                "id": auto_rule.get("name", "unknown"),
-                "object": "model",
-                "created": int(datetime.now().timestamp()),
-                "owned_by": auto_rule.get("name", "unknown") + " (auto)",
-                "permission": [],
-                "root": "[auto]",
-                "parent": None
-            })
+            models.append(
+                {
+                    "id": auto_rule.get("name", "unknown"),
+                    "object": "model",
+                    "created": int(datetime.now().timestamp()),
+                    "owned_by": auto_rule.get("name", "unknown") + " (auto)",
+                    "permission": [],
+                    "root": "[auto]",
+                    "parent": None,
+                }
+            )
 
-    return {
-        "object": "list",
-        "data": models
-    }
+    return {"object": "list", "data": models}
 
 
 @app.api_route("/v1/chat/completions", methods=["POST", "GET"], tags=["API代理"])
-async def chat_completions(
-    request: Request,
-    model: Optional[str] = None
-):
+async def chat_completions(request: Request, model: Optional[str] = None):
     """
     聊天补全代理接口
 
@@ -365,10 +330,7 @@ async def chat_completions(
         actual_model, upstream_url, key_info = rule_engine.resolve_model(model)
 
         if not upstream_url or not key_info:
-            raise HTTPException(
-                status_code=400,
-                detail=f"无法解析模型: {model}，请检查规则配置"
-            )
+            raise HTTPException(status_code=400, detail=f"无法解析模型: {model}，请检查规则配置")
 
         # 准备转发参数
         stream = body.get("stream", False)
@@ -387,7 +349,7 @@ async def chat_completions(
             temperature=temperature,
             max_tokens=max_tokens,
             timeout=timeout,
-            upstream_url=upstream_url
+            upstream_url=upstream_url,
         )
 
         # 处理流式响应
@@ -413,66 +375,59 @@ async def chat_completions(
             # 返回JSON响应
             if isinstance(response, dict) and response.get("error"):
                 err = response["error"]
-                
+
                 # 处理 429 速率限制错误
                 if err.get("code") == 429:
                     api_key = key_info.get("api_key")
                     model = key_info.get("model", actual_model)
-                    
+
                     # 触发冷却
                     rule_engine.cooldown_manager.trigger_cooldown(api_key, model)
-                    
+
                     logger.warning(f"触发冷却: key={api_key[:15]}..., model={model}")
-                    
+
                     # 使用系统配置中的错误消息
                     error_msg = system_config.get_error_message(429)
-                    
+
                     # 返回错误信息
-                    raise HTTPException(
-                        status_code=429,
-                        detail=f"{error_msg}: {err.get('message', '速率限制')}"
-                    )
-                
+                    raise HTTPException(status_code=429, detail=f"{error_msg}: {err.get('message', '速率限制')}")
+
                 # 使用系统配置中的错误消息
                 status_code = err.get("code", 502)
-                error_msg = system_config.get_error_message(status_code) if status_code in [429, 500] else err.get("message", "上游API错误")
-                
-                raise HTTPException(
-                    status_code=status_code,
-                    detail=error_msg
+                error_msg = (
+                    system_config.get_error_message(status_code)
+                    if status_code in [429, 500]
+                    else err.get("message", "上游API错误")
                 )
+
+                raise HTTPException(status_code=status_code, detail=error_msg)
             return JSONResponse(content=response)
 
     except HTTPException:
         raise
     except httpx.HTTPStatusError as e:
         logger.error(f"上游API错误: {e.response.status_code} - {str(e)}")
-        
+
         # 使用系统配置中的错误消息
         status_code = e.response.status_code
-        error_msg = system_config.get_error_message(status_code) if status_code in [429, 500] else f"上游API错误: {status_code}"
-        
-        raise HTTPException(
-            status_code=502,
-            detail=error_msg
+        error_msg = (
+            system_config.get_error_message(status_code) if status_code in [429, 500] else f"上游API错误: {status_code}"
         )
+
+        raise HTTPException(status_code=502, detail=error_msg)
     except TimeoutError as e:
         raise HTTPException(status_code=504, detail=str(e))
     except Exception as e:
         logger.error(f"代理请求失败: {str(e)}")
-        
+
         # 使用系统配置中的错误消息
         error_msg = system_config.get_error_message(500)
-        
+
         raise HTTPException(status_code=500, detail=f"{error_msg}: {str(e)}")
 
 
 @app.api_route("/v1/completions", methods=["POST", "GET"], tags=["API代理"])
-async def completions(
-    request: Request,
-    model: Optional[str] = None,
-    prompt: Optional[str] = None
-):
+async def completions(request: Request, model: Optional[str] = None, prompt: Optional[str] = None):
     """
     文本补全代理接口
     """
@@ -480,10 +435,7 @@ async def completions(
         if request.method == "POST":
             body = await request.json()
         else:
-            body = {
-                "model": model,
-                "prompt": prompt
-            }
+            body = {"model": model, "prompt": prompt}
 
         model = body.get("model", model)
         if not model:
@@ -493,10 +445,7 @@ async def completions(
         actual_model, upstream_url, key_info = rule_engine.resolve_model(model)
 
         if not upstream_url or not key_info:
-            raise HTTPException(
-                status_code=400,
-                detail=f"无法解析模型: {model}"
-            )
+            raise HTTPException(status_code=400, detail=f"无法解析模型: {model}")
 
         # 调用转发器
         response = await forwarder.forward_completion(
@@ -507,7 +456,7 @@ async def completions(
             stream=body.get("stream", False),
             temperature=body.get("temperature", 0.7),
             max_tokens=body.get("max_tokens", 2048),
-            timeout=body.get("timeout", system_config.get_timeout_config().get("request", 120))
+            timeout=body.get("timeout", system_config.get_timeout_config().get("request", 120)),
         )
 
         # 处理流式响应
@@ -537,20 +486,18 @@ async def completions(
         raise
     except Exception as e:
         logger.error(f"补全请求失败: {str(e)}")
-        
+
         # 使用系统配置中的错误消息
         error_msg = system_config.get_error_message(500)
-        
+
         raise HTTPException(status_code=500, detail=f"{error_msg}: {str(e)}")
 
 
 # ==================== 直接转发路由 ====================
 
+
 @app.api_route("/proxy/{path:path}", methods=["GET", "POST"], tags=["直接代理"])
-async def direct_proxy(
-    path: str,
-    request: Request
-):
+async def direct_proxy(path: str, request: Request):
     """
     直接代理接口
 
@@ -600,9 +547,10 @@ async def direct_proxy(
         client = forwarder._get_client()
 
         if stream:
+
             async def generate():
                 try:
-                    async with client.stream('POST', url, json=body, headers=headers, timeout=timeout) as response:
+                    async with client.stream("POST", url, json=body, headers=headers, timeout=timeout) as response:
                         response.raise_for_status()
                         content_type = response.headers.get("content-type", "text/plain")
                         async for chunk in response.aiter_text():
@@ -629,10 +577,10 @@ async def direct_proxy(
         raise
     except Exception as e:
         logger.error(f"直接代理请求失败: {str(e)}")
-        
+
         # 使用系统配置中的错误消息
         error_msg = system_config.get_error_message(500)
-        
+
         raise HTTPException(status_code=500, detail=f"{error_msg}: {str(e)}")
 
 
@@ -648,5 +596,5 @@ if __name__ == "__main__":
         app,
         host=DEFAULT_CONFIG.get("host", "0.0.0.0"),
         port=DEFAULT_CONFIG.get("port", 8000),
-        log_level=system_config.get_logging_config().get("level", "info").lower()
+        log_level=system_config.get_logging_config().get("level", "info").lower(),
     )
